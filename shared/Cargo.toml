@@ -1,0 +1,16 @@
+[package]
+name = "shared"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Los tipos compartidos solo necesitan serialización
+# Tanto el backend como la app Tauri los usan para tener
+# los mismos structs en ambos extremos (DTOs, enums de eventos WS, etc.)
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+rand = "0.10.0"
+regex = "1.12.3"

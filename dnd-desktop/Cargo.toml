@@ -1,0 +1,41 @@
+[package]
+name = "dnd-desktop"
+version = "0.1.0"
+authors = ["Gaspar <gaspargkral@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+# UI desktop - solo feature desktop, sin fullstack
+dioxus = { version = "0.7.3", features = ["desktop", "router"] }
+dioxus-desktop = "0.7.3"
+
+# Servidor embebido
+axum = { version="0.8", features=["ws","tracing"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+# WebSockets
+futures-util = "0.3"
+
+# Workspace
+shared = { path = "../shared" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+# Obsidian vault
+gray_matter = "0.2"
+pulldown-cmark = "0.12"
+walkdir = "2"          # para recorrer el vault recursivamente
+
+# Configuración
+dotenvy = "0.15"
+config = "0.14"
+
+# File watcher para hot-reload del lore
+notify = "7"
+

@@ -1,0 +1,46 @@
+[package]
+name = "dnd-desktop"
+version = "0.1.0"
+edition = "2021"
+
+# Tauri requiere este perfil para builds de producción
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# ── Tipos compartidos con el backend ─────────────────────────────────────────
+# Importamos el crate shared directamente del monorepo
+# Así tenemos los mismos DTOs y eventos WS que el backend sin duplicar código
+shared = { path = "../../shared" }
+
+# ── Tauri ─────────────────────────────────────────────────────────────────────
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-store = "2"   # persistencia local de config (URL del servidor, etc.)
+
+# ── HTTP / WebSocket client ───────────────────────────────────────────────────
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+
+# ── Serialización ─────────────────────────────────────────────────────────────
+serde.workspace = true
+serde_json.workspace = true
+
+# ── Async ─────────────────────────────────────────────────────────────────────
+tokio.workspace = true
+
+# ── Utilidades ────────────────────────────────────────────────────────────────
+uuid.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
