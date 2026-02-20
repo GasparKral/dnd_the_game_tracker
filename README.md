@@ -1,104 +1,133 @@
-# dnd-manager — Monorepo
+# 🎲 DnD The Game Tracker
+
+Monorepo para una suite de herramientas de gestión de partidas de Dungeons & Dragons. El sistema está compuesto por una app de escritorio para el Dungeon Master y una app móvil para los jugadores, comunicadas en tiempo real mediante WebSockets.
+
+---
 
 ## Estructura del proyecto
 
 ```
-dnd-manager/
+dnd_the_game_tracker/
 │
-├── Cargo.toml                  ← Workspace raíz (Rust)
+├── Cargo.toml          ← Workspace raíz de Rust
 │
-├── crates/                     ← Código Rust
-│   ├── backend/                ← Servidor Axum
-│   │   ├── Cargo.toml
-│   │   ├── src/
-│   │   │   ├── main.rs
-│   │   │   ├── config.rs       ← Configuración (puerto, ruta vault, JWT secret)
-│   │   │   ├── db/
-│   │   │   │   ├── mod.rs
-│   │   │   │   └── migrations/ ← Migraciones SQLite (.sql)
-│   │   │   ├── routes/
-│   │   │   │   ├── mod.rs
-│   │   │   │   ├── characters.rs
-│   │   │   │   ├── combat.rs
-│   │   │   │   ├── inventory.rs
-│   │   │   │   ├── lore.rs     ← Sirve el vault de Obsidian
-│   │   │   │   └── ws.rs       ← WebSocket handler (eventos de combate)
-│   │   │   ├── models/         ← Structs de base de datos (sqlx::FromRow)
-│   │   │   ├── handlers/       ← Lógica de cada endpoint
-│   │   │   └── vault/
-│   │   │       └── watcher.rs  ← File watcher del vault de Obsidian
-│   │   └── migrations/
-│   │       ├── 001_init.sql
-│   │       ├── 002_characters.sql
-│   │       └── 003_combat.sql
-│   │
-│   └── shared/                 ← Tipos compartidos backend ↔ Tauri
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs
-│           ├── models.rs       ← DTOs (Character, CombatState, InventoryItem…)
-│           └── events.rs       ← Enum WsEvent para mensajes WebSocket
+├── dnd-desktop/        ← App de escritorio para el DM (Rust + Dioxus)
+│   ├── src/
+│   │   ├── main.rs
+│   │   ├── backend/    ← Servidor Axum embebido + WebSocket
+│   │   ├── states/     ← Estado global de la app
+│   │   └── ui/
+│   │       ├── components/
+│   │       ├── layouts/
+│   │       └── screens/    ← main_menu, new_campain, load_campain, lore, options
+│   ├── assets/         ← Tailwind CSS
+│   └── Dioxus.toml
 │
-├── apps/
-│   ├── desktop/                ← App Tauri (panel master)
-│   │   ├── src-tauri/
-│   │   │   ├── Cargo.toml      ← Puede importar el crate "shared"
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── src/                ← Frontend (React/Svelte/Vue)
-│   │   │   └── ...
-│   │   ├── package.json
-│   │   └── tauri.conf.json
-│   │
-│   └── mobile/                 ← App Kotlin + Compose (jugadores)
-│       ├── app/
-│       │   └── src/
-│       │       └── main/
-│       │           ├── kotlin/
-│       │           │   └── com/dndmanager/
-│       │           │       ├── MainActivity.kt
-│       │           │       ├── network/
-│       │           │       │   ├── ApiClient.kt    ← Retrofit / Ktor client
-│       │           │       │   └── WsClient.kt     ← WebSocket client
-│       │           │       ├── ui/
-│       │           │       │   ├── character/
-│       │           │       │   ├── inventory/
-│       │           │       │   ├── combat/
-│       │           │       │   └── lore/
-│       │           │       └── viewmodel/
-│       │           └── res/
-│       ├── build.gradle.kts
-│       └── settings.gradle.kts
+├── dnd-movile/         ← App Android para jugadores (Kotlin + Jetpack Compose)
+│   └── app/src/main/
+│       ├── AndroidManifest.xml
+│       └── java/io/github/gasparkral/dnd_movile/
+│           ├── MainActivity.kt
+│           └── ui/theme/
 │
-├── .env.example                ← Variables de entorno de ejemplo
-├── .gitignore
-└── README.md
+└── shared/             ← Crate Rust con tipos compartidos (DTOs, modelos)
+    └── src/
+        ├── models/     ← Character, Attributes, Dice, Damage, Inventory, Items...
+        └── traits/
 ```
 
-## Arrancar el proyecto
+---
 
-### Backend
+## Stack tecnológico
+
+| Capa | Tecnología |
+|---|---|
+| App desktop | Rust + [Dioxus](https://dioxuslabs.com/) (modo desktop) |
+| Servidor embebido | [Axum](https://github.com/tokio-rs/axum) (corre dentro del proceso desktop) |
+| WebSockets | Axum WS + `futures-util` |
+| App móvil | Kotlin + Jetpack Compose (Android) |
+| Tipos compartidos | Crate `shared` (Rust) con `serde` |
+| Estilos | Tailwind CSS |
+| Lore / vault | Integración con Obsidian (Markdown + frontmatter via `gray_matter` + `pulldown-cmark`) |
+
+---
+
+## Arquitectura
+
+El DM ejecuta la app de escritorio, que levanta internamente un servidor Axum con WebSockets. Los jugadores se conectan desde sus dispositivos Android a ese servidor a través de la red local (o un túnel Cloudflare para juego remoto). El crate `shared` define los modelos y DTOs que ambos extremos usan, garantizando consistencia de tipos.
+
+```
+┌─────────────────────────────────┐
+│        dnd-desktop (DM)         │
+│  ┌─────────────┐  ┌──────────┐  │
+│  │  Dioxus UI  │  │  Axum +  │  │
+│  │  (pantallas)│  │  WS API  │  │
+│  └─────────────┘  └────┬─────┘  │
+└───────────────────────┼─────────┘
+                         │ WebSocket / HTTP
+              ┌──────────┴──────────┐
+              │                     │
+      ┌───────┴──────┐     ┌────────┴─────┐
+      │ dnd-movile   │     │ dnd-movile   │
+      │  (jugador 1) │     │  (jugador 2) │
+      └──────────────┘     └──────────────┘
+```
+
+---
+
+## Primeros pasos
+
+### Requisitos
+
+- [Rust](https://rustup.rs/) (stable)
+- [Dioxus CLI](https://dioxuslabs.com/learn/0.5/getting_started): `cargo install dioxus-cli`
+- [Bun](https://bun.sh/) (para Tailwind)
+- Android Studio (para la app móvil)
+
+### App de escritorio (DM)
+
 ```bash
-# Instalar sqlx-cli para migraciones
-cargo install sqlx-cli --no-default-features --features sqlite
+cd dnd-desktop
 
-# Crear la base de datos y correr migraciones
-cd crates/backend
-sqlx database create
-sqlx migrate run
+# Instalar dependencias de Tailwind
+bun install
 
-# Arrancar el servidor
-cargo run -p backend
+# Modo desarrollo
+dx serve --platform desktop
+
+# Build de producción
+dx build --platform desktop --release
 ```
 
-### Desktop (Tauri)
+### App móvil (jugadores)
+
+Abrir la carpeta `dnd-movile/` con Android Studio y ejecutar en un dispositivo o emulador.
+
+### Túnel para juego remoto (opcional)
+
+Si los jugadores no están en la misma red local:
+
 ```bash
-cd apps/desktop
-npm install
-npm run tauri dev
+cloudflared tunnel --url http://localhost:<puerto>
 ```
 
-### Túnel (Cloudflare)
-```bash
-cloudflared tunnel --url http://localhost:3000
-```
+---
+
+## Módulo `shared`
+
+Contiene todos los tipos de dominio usados tanto por el backend como por la UI:
+
+- `models/character.rs` — struct `Character` y campos de personaje
+- `models/attributes.rs` — atributos D&D (STR, DEX, CON, INT, WIS, CHA)
+- `models/dice.rs` — tipos de dados y tiradas
+- `models/damage.rs` — tipos y cálculo de daño
+- `models/inventory.rs` — inventario del personaje
+- `models/items/` — definición de objetos
+- `models/builders/` — builders para construcción de entidades
+- `models/defaults/` — valores por defecto de las entidades
+
+---
+
+## Licencia
+
+MIT — Gaspar Gómez Kral
