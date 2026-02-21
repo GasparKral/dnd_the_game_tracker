@@ -1,20 +1,19 @@
-use super::messages::*;
+use super::models::messages::*;
 use axum::extract::{
     ws::{Message, WebSocket},
     State, WebSocketUpgrade,
 };
-use axum::response::IntoResponse;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::states::AppState;
+use crate::states::{AppState, SharedState};
 
 pub async fn handler(
+    State(state): State<SharedState>,
     ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+) -> impl axum::response::IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state.0))
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
