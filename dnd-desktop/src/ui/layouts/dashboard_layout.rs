@@ -8,10 +8,10 @@ pub fn DashboardLayout() -> Element {
         main{
             class:"min-h-screen minw-screen flex flex-col",
             nav{
-                class:"w-full",
-                Link{to:"/lore","Lore"}
-                Link{to:"/players","Jugadores"}
-                Link{to:"/map","Mapa"}
+                class:"w-full flex gap-2 bg-stone-900 px-12 py-2 items-center sticky top-0 z-100",
+                Link{class:"text-lg text-center px-2",to:"/lore","Lore"}
+                Link{class:"text-lg text-center px-2",to:"/players","Jugadores"}
+                Link{class:"text-lg text-center px-2",to:"/map","Mapa"}
             }
             Outlet::<Routes>{}
         }
