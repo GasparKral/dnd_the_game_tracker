@@ -30,7 +30,8 @@ chrono.workspace = true
 # Obsidian vault
 gray_matter = "0.2"
 pulldown-cmark = "0.12"
-walkdir = "2"          # para recorrer el vault recursivamente
+walkdir = "2"   # para recorrer el vault recursivamente
+regex = "1.12.3"
 
 # Configuración
 dotenvy = "0.15"
