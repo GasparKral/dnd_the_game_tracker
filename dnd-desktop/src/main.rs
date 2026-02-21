@@ -6,15 +6,18 @@ use dioxus::prelude::*;
 use std::sync::Arc;
 
 pub fn main() {
-    let state = Arc::new(states::AppState::new());
+    let shared_state = states::SharedState(Arc::new(states::AppState::new()));
 
+    let backend_state = shared_state.clone();
     std::thread::spawn(move || {
         tokio::runtime::Runtime::new()
-            .expect("Failed to create Tokio Runtime")
-            .block_on(backend::run(state));
+            .unwrap()
+            .block_on(backend::run(backend_state));
     });
 
-    dioxus::launch(app);
+    dioxus::LaunchBuilder::new()
+        .with_context(shared_state)
+        .launch(app); // app es fn pointer, sin closure
 }
 
 fn app() -> Element {
