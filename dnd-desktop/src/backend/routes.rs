@@ -1,10 +1,14 @@
-use crate::states::SharedState; // ← esto, no Arc<AppState>
+use crate::states::SharedState;
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Router,
+    Json, Router,
 };
+use serde::Serialize;
+use std::path::PathBuf;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 pub fn api_router() -> Router<SharedState> {
@@ -17,16 +21,114 @@ pub fn api_router() -> Router<SharedState> {
         .route("/lore/{*path}", get(get_lore_entry))
 }
 
-async fn get_all_characters(State(state): State<SharedState>) -> impl IntoResponse {}
+async fn get_all_characters(State(state): State<SharedState>) -> impl IntoResponse {
+    axum::http::StatusCode::NOT_IMPLEMENTED
+}
 async fn get_character(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
+    axum::http::StatusCode::NOT_IMPLEMENTED
 }
-async fn get_combat_state(State(state): State<SharedState>) -> impl IntoResponse {}
-async fn get_lore_index(State(state): State<SharedState>) -> impl IntoResponse {}
+async fn get_combat_state(State(state): State<SharedState>) -> impl IntoResponse {
+    axum::http::StatusCode::NOT_IMPLEMENTED
+}
+
+async fn get_lore_index(State(state): State<SharedState>) -> impl IntoResponse {
+    let vault_path = state.0.get_vault().await;
+
+    // Si el vault no está configurado todavía
+    if vault_path.as_os_str().is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Vault no configurado" })),
+        )
+            .into_response();
+    }
+
+    // Recorrer el vault buscando .md
+    let entries: Vec<String> = walkdir::WalkDir::new(&vault_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().extension().map_or(false, |ext| ext == "md")
+                && e.path().to_string_lossy().to_string().contains("/Lore")
+        })
+        .filter_map(|e| {
+            // Obtener la ruta relativa al vault (ej: "Lugares/Taberna.md")
+            e.path()
+                .strip_prefix(&vault_path)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .collect();
+
+    (StatusCode::OK, Json(LoreIndex { entries })).into_response()
+}
+
+// GET /api/lore/Lugares/Taberna  →  contenido de esa nota
 async fn get_lore_entry(
     State(state): State<SharedState>,
-    Path(path): Path<String>,
+    Path(path): Path<String>, // "Lugares/Taberna" o "Lugares/Taberna.md"
 ) -> impl IntoResponse {
+    info!("Petición lore entry: {}", path);
+
+    let vault_path = state.0.get_vault().await;
+
+    if vault_path.as_os_str().is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Vault no configurado" })),
+        )
+            .into_response();
+    }
+
+    // Construir la ruta — añadimos .md si no lo trae el cliente
+    let relative = if path.ends_with(".md") {
+        PathBuf::from(&path)
+    } else {
+        PathBuf::from(format!("{}.md", path))
+    };
+
+    let full_path = vault_path.join(&relative);
+
+    // Leer el fichero
+    match tokio::fs::read_to_string(&full_path).await {
+        Ok(content) => {
+            let title = relative
+                .file_stem() // "Taberna"
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            (
+                StatusCode::OK,
+                Json(LoreEntry {
+                    path: path.clone(),
+                    title,
+                    content,
+                }),
+            )
+                .into_response()
+        }
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("Nota '{}' no encontrada en el vault", path)
+            })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct LoreEntry {
+    path: String,    // ruta relativa dentro del vault
+    title: String,   // nombre del fichero sin extensión
+    content: String, // contenido markdown en crudo
+}
+
+#[derive(Serialize)]
+struct LoreIndex {
+    entries: Vec<String>, // lista de rutas relativas
 }

@@ -1,6 +1,7 @@
 use super::messages::ServerMessage;
 use std::collections::HashMap;
 use tokio::sync::{broadcast, RwLock};
+use tracing::info;
 use uuid::Uuid;
 
 const BROADCAST_CAPACITY: usize = 256;
@@ -23,10 +24,12 @@ impl WsPool {
     }
 
     pub async fn add(&self, id: Uuid, character_name: String) {
+        info!("Connected player");
         self.players.write().await.insert(id, character_name);
     }
 
     pub async fn remove(&self, id: &Uuid) {
+        info!("Disconnected player");
         self.players.write().await.remove(id);
     }
 

@@ -37,6 +37,9 @@ regex = "1.12.3"
 dotenvy = "0.15"
 config = "0.14"
 
+# Debug
+tracing-subscriber = "0.3.22"
+
 # File watcher para hot-reload del lore
 notify = "7"
 
