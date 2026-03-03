@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -48,10 +49,16 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        viewBinding = true
     }
 }
 
 dependencies {
+    implementation(libs.material)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.navigation.fragment.ktx)
+    implementation(libs.androidx.navigation.ui.ktx)
     // ── Compose BOM ──────────────────────────────────────────────────────────
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
@@ -80,6 +87,7 @@ dependencies {
     implementation(libs.ktor.client.logging)
     // WebSocket nativo con Ktor
     implementation(libs.ktor.client.websockets)
+    implementation(libs.ktor.client.cio)
 
     // ── Serialización ────────────────────────────────────────────────────────
     implementation(libs.kotlinx.serialization.json)
@@ -94,10 +102,13 @@ dependencies {
     // ── Persistencia local ────────────────────────────────────────────────────
     // Para guardar el token JWT y la URL del servidor
     implementation(libs.androidx.datastore.preferences)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
 
     // ── Markdown renderer ─────────────────────────────────────────────────────
     // Para mostrar el lore de Obsidian (notas .md) en la app
-   // implementation("com.github.jeziellago:compose-markdown:0.5.8")
+    // implementation("com.github.jeziellago:compose-markdown:0.5.8")
 
     // ── Imágenes ──────────────────────────────────────────────────────────────
     implementation(libs.coil.compose)
@@ -106,6 +117,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-   // androidTestImplementation(composeBom)
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    // androidTestImplementation(composeBom)
+    androidTestImplementation(libs.androidx.ui.test.junit4)
 }
+

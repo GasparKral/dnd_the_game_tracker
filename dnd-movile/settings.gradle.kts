@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "dnd-movile"
+rootProject.name = "dnd"
 include(":app")
