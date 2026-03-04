@@ -32,10 +32,12 @@ gray_matter = "0.2"
 pulldown-cmark = "0.12"
 walkdir = "2"   # para recorrer el vault recursivamente
 regex = "1.12.3"
+base64 = "0.22"
 
 # Configuración
 dotenvy = "0.15"
 config = "0.14"
+dirs = "5"
 
 # Debug
 tracing-subscriber = "0.3.22"

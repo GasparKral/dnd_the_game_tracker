@@ -1,6 +1,5 @@
 package io.github.gasparkral.dnd
 
-import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,18 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
+import androidx.core.content.edit
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import io.github.gasparkral.dnd.ui.screen.CharacterCreationScreen
-import io.github.gasparkral.dnd.ui.screen.CharacterInfoScreen
-import io.github.gasparkral.dnd.ui.screen.CharacterSelectionScreen
-import io.github.gasparkral.dnd.ui.screen.CombatScreen
-import io.github.gasparkral.dnd.ui.screen.DashboardScreen
-import io.github.gasparkral.dnd.ui.screen.InventoryScreen
-import io.github.gasparkral.dnd.ui.screen.LoreScreen
-import io.github.gasparkral.dnd.ui.screen.RequestUrlConnectionScreen
-import io.github.gasparkral.dnd.ui.screen.SetupUsernameScreen
+import androidx.navigation.toRoute
+import io.github.gasparkral.dnd.ui.screen.*
 import io.github.gasparkral.dnd.ui.theme.DndTheme
 import kotlinx.serialization.Serializable
 
@@ -29,110 +22,125 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val prefs = getSharedPreferences("dnd_prefs", Context.MODE_PRIVATE)
-        val startDest: Any = if (prefs.getString("player_name", null) == null) SetupUsername else RequestUrl
+        val prefs = getSharedPreferences("dnd_prefs", MODE_PRIVATE)
+        val playerName = prefs.getString("player_name", null)
+        val startDest: Any = if (playerName == null) SetupUsername else RequestUrl
 
         setContent {
-
             val navController = rememberNavController()
 
             DndTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     NavHost(navController = navController, startDestination = startDest) {
 
+                        // ── Setup nombre de jugador ────────────────────────
                         composable<SetupUsername> {
                             SetupUsernameScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
                                 onUsernameSaved = { name ->
-                                    prefs.edit().putString("player_name", name).apply()
+                                    prefs.edit { putString("player_name", name) }
                                     navController.navigate(RequestUrl) {
                                         popUpTo(SetupUsername) { inclusive = true }
                                     }
-                                }
+                                },
                             )
                         }
 
+                        // ── Configurar URL del servidor ───────────────────
                         composable<RequestUrl> {
                             RequestUrlConnectionScreen(
-                                Modifier
+                                modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
-                                { navController.navigate(route = CharacterSelection) }
+                                onConnected = {
+                                    navController.navigate(CharacterSelection) {
+                                        popUpTo(RequestUrl) { inclusive = true }
+                                    }
+                                },
                             )
                         }
 
+                        // ── Selección de personaje ─────────────────────────
                         composable<CharacterSelection> {
+                            val name = prefs.getString("player_name", "") ?: ""
                             CharacterSelectionScreen(
-                                Modifier
+                                modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
-                                navigateToCreateCharacter = { navController.navigate(route = CharacterCreation) },
-                                navigateToCharacterInfo = { c ->
-                                    CharacterInfo.character = c
-                                    navController.navigate(route = Dashboard)
-                                }
+                                playerName = name,
+                                navigateToCreateCharacter = {
+                                    navController.navigate(CharacterCreation)
+                                },
+                                navigateToDashboard = { draftId ->
+                                    navController.navigate(Dashboard(draftId))
+                                },
                             )
                         }
 
+                        // ── Creación de personaje (wizard) ─────────────────
                         composable<CharacterCreation> {
+                            val name = prefs.getString("player_name", "") ?: ""
                             CharacterCreationScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
+                                playerName = name,
                                 onBack = { navController.popBackStack() },
-                                onCharacterCreated = { navController.popBackStack() }
+                                onCharacterCreated = {
+                                    navController.navigate(CharacterSelection) {
+                                        popUpTo(CharacterCreation) { inclusive = true }
+                                    }
+                                },
                             )
                         }
 
-                        composable<Dashboard> {
+                        // ── Dashboard ──────────────────────────────────────
+                        composable<Dashboard> { backStackEntry ->
+                            val route = backStackEntry.toRoute<Dashboard>()
                             DashboardScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
-                                character = CharacterInfo.character,
-                                isInCombat = false, // TODO: desde ViewModel global / WS state
-                                onNavigateToCharacterInfo = { navController.navigate(CharacterInfo) },
-                                onNavigateToInventory     = { navController.navigate(Inventory) },
-                                onNavigateToLore          = { navController.navigate(Lore) },
-                                onNavigateToCombat        = { navController.navigate(Combat) }
+                                draftId = route.draftId,
+                                onNavigateToInventory = { navController.navigate(Inventory(route.draftId)) },
+                                onNavigateToLore = { navController.navigate(Lore) },
+                                onNavigateToCombat = { navController.navigate(Combat(route.draftId)) },
                             )
                         }
 
-                        composable<CharacterInfo> {
-                            CharacterInfoScreen(
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding),
-                                character = CharacterInfo.character
-                            )
-                        }
-
+                        // ── Lore ───────────────────────────────────────────
                         composable<Lore> {
                             LoreScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
                             )
                         }
 
-                        composable<Inventory> {
+                        // ── Inventario ─────────────────────────────────────
+                        composable<Inventory> { backStackEntry ->
+                            val route = backStackEntry.toRoute<Inventory>()
                             InventoryScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
-                                onBack = { navController.popBackStack() }
+                                draftId = route.draftId,
+                                onBack = { navController.popBackStack() },
                             )
                         }
 
-                        composable<Combat> {
+                        // ── Combate ────────────────────────────────────────
+                        composable<Combat> { backStackEntry ->
+                            val route = backStackEntry.toRoute<Combat>()
                             CombatScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding),
-                                onBack = { navController.popBackStack() }
+                                draftId = route.draftId,
+                                onBack = { navController.popBackStack() },
                             )
                         }
                     }
@@ -142,16 +150,31 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Serializable object SetupUsername
-@Serializable object RequestUrl
-@Serializable object CharacterSelection
-@Serializable object CharacterCreation
-@Serializable object Dashboard
-@Serializable object Lore
-@Serializable object Inventory
-@Serializable object Combat
+// ---------------------------------------------------------------------------
+// Rutas de navegación
+// ---------------------------------------------------------------------------
 
 @Serializable
-object CharacterInfo {
-    lateinit var character: io.github.gasparkral.dnd.infra.dbstruct.Character
-}
+object SetupUsername
+
+@Serializable
+object RequestUrl
+
+@Serializable
+object CharacterSelection
+
+@Serializable
+object CharacterCreation
+
+@Serializable
+object Lore
+
+/** Dashboard, Inventario y Combate reciben el draftId para consultar la API. */
+@Serializable
+data class Dashboard(val draftId: String)
+
+@Serializable
+data class Inventory(val draftId: String)
+
+@Serializable
+data class Combat(val draftId: String)

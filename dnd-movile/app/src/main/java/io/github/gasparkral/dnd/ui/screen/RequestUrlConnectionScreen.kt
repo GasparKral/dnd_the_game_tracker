@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import io.github.gasparkral.dnd.infra.ClientMessage
 import io.github.gasparkral.dnd.infra.HttpManager
 import io.github.gasparkral.dnd.infra.SocketManager
+import io.github.gasparkral.dnd.infra.DndJson
 import io.github.gasparkral.dnd.infra.httpClient
 import io.github.gasparkral.dnd.infra.webSocketClient
 import io.github.gasparkral.dnd.ui.component.DndDivider
@@ -28,12 +29,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 
 @Composable
 fun RequestUrlConnectionScreen(
     modifier: Modifier = Modifier,
-    onNavigationToCharacterSelection: () -> Unit
+    onConnected: () -> Unit
 ) {
     var text by remember { mutableStateOf(TextFieldValue("")) }
     var errorMsg by remember { mutableStateOf("") }
@@ -133,7 +133,7 @@ fun RequestUrlConnectionScreen(
                     tryConnection().fold(
                         onOk = {
                             errorMsg = ""
-                            onNavigationToCharacterSelection.invoke()
+                            onConnected()
                         },
                         onErr = { error ->
                             errorMsg = when (error) {
@@ -166,14 +166,8 @@ fun RequestUrlConnectionScreen(
 
 fun tryConnection(): Result<Unit, UIConnectionError> {
     val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = true
-        explicitNulls = false
-    }
     ClientMessage.Join("Gaspar", "Test")
-    val socket = SocketManager(client = webSocketClient, scope = scope, json = json)
+    val socket = SocketManager(client = webSocketClient, scope = scope, json = DndJson)
     try {
         val url = UrlConnection.URL.replace("https", "wss")
         scope.launch { socket.connect("$url/ws/game") }

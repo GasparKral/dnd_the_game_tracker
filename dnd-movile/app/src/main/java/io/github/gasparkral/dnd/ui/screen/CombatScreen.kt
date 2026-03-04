@@ -21,7 +21,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun CombatScreen(
     modifier: Modifier = Modifier,
-    onBack: () -> Unit = {}
+    draftId: String,
+    onBack: () -> Unit = {},
 ) {
     Column(modifier.padding(16.dp)) {
 

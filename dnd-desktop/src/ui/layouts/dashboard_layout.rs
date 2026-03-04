@@ -11,6 +11,13 @@ pub fn DashboardLayout() -> Element {
                 Link{class:"text-lg text-center px-2",to:"/lore","Lore"}
                 Link{class:"text-lg text-center px-2",to:"/players","Jugadores"}
                 Link{class:"text-lg text-center px-2",to:"/map","Mapa"}
+                // Separador flexible
+                div { class: "flex-1" }
+                Link{
+                    class:"text-sm text-stone-400 hover:text-stone-100 px-3 py-1 border border-stone-700 rounded",
+                    to:"/",
+                    "↩ Inicio"
+                }
             }
             div{
                 class:"mt-12",

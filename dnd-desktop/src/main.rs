@@ -1,7 +1,9 @@
 mod backend;
 mod cli;
+mod persistence;
 mod states;
 mod ui;
+mod vault;
 
 use cli::{CliArgs, DebugMode};
 use dioxus::prelude::*;
@@ -24,7 +26,12 @@ pub fn main() {
         .with(filter)
         .init();
 
-    let shared_state = states::SharedState(Arc::new(states::AppState::new()));
+    // Directorio de datos: ~/.local/share/dnd-dm en Linux/Mac, %APPDATA%\dnd-dm en Windows
+    let data_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("dnd-dm");
+
+    let shared_state = states::SharedState(Arc::new(states::AppState::new(data_dir)));
 
     let backend_state = shared_state.clone();
     std::thread::spawn(move || {

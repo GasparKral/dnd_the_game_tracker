@@ -7,17 +7,24 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
+val DndJson = Json {
+    // Rust puede añadir campos nuevos sin romper la app
+    ignoreUnknownKeys = true
+    // Permite JSON malformado con tolerancia
+    isLenient = true
+    // No serializar nulls salvo que sea necesario
+    explicitNulls = false
+    // El discriminador de sealed class lo marca @JsonClassDiscriminator en cada clase
+    // — no hace falta classDiscriminator global aquí
+}
+
 val httpClient = HttpClient {
     install(Logging) {
         logger = Logger.DEFAULT
-        level = LogLevel.HEADERS
-        filter { request -> request.url.host.contains("ktor.io") }
-        sanitizeHeader { header -> header == HttpHeaders.Authorization }
+        // BODY para ver el JSON completo en Logcat durante desarrollo
+        level = LogLevel.BODY
     }
     install(ContentNegotiation) {
-        json(Json {
-            prettyPrint = true
-            isLenient = true
-        })
+        json(DndJson)
     }
 }

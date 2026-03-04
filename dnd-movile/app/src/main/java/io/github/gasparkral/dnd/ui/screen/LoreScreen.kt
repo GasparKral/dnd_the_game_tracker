@@ -34,6 +34,9 @@ import org.intellij.markdown.parser.MarkdownParser
 data class LoreIndexEntry(val path: String, val title: String)
 
 @Serializable
+private data class LoreIndexResponse(val entries: List<LoreIndexEntry>)
+
+@Serializable
 data class LoreEntry(val path: String, val title: String, val content: String)
 
 // ── Normalización del contenido ───────────────────────────────────────────────
@@ -114,8 +117,8 @@ fun LoreScreen(
     var query by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        HttpManager.get<List<LoreIndexEntry>>("/api/lore").fold(
-            onOk = { index = it },
+        HttpManager.get<LoreIndexResponse>("/api/lore").fold(
+            onOk = { index = it.entries },
             onErr = { e -> indexError = e.toString() }
         )
     }

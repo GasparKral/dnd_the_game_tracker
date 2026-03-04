@@ -21,6 +21,9 @@ object HttpManager {
         this.client = client
     }
 
+    fun isInitialized(): Boolean =
+        ::baseUrl.isInitialized && ::client.isInitialized
+
     // ── GET ──────────────────────────────────────────────────────────────────
 
     suspend inline fun <reified T> get(

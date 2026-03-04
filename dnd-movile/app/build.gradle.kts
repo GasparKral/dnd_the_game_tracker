@@ -5,7 +5,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    id("com.google.devtools.ksp")
 }
 
 android {
@@ -100,11 +99,9 @@ dependencies {
     implementation(libs.koin.androidx.compose)
 
     // ── Persistencia local ────────────────────────────────────────────────────
-    // Para guardar el token JWT y la URL del servidor
+    // DataStore persiste nombre de jugador y URL del servidor
     implementation(libs.androidx.datastore.preferences)
-    ksp(libs.androidx.room.compiler)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
+    // Room eliminado — personajes gestionados por la API REST
 
     // ── Markdown renderer ─────────────────────────────────────────────────────
     // Para mostrar el lore de Obsidian (notas .md) en la app

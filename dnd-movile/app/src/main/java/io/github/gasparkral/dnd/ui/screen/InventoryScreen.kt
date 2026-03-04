@@ -20,7 +20,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun InventoryScreen(
     modifier: Modifier = Modifier,
-    onBack: () -> Unit = {}
+    draftId: String,
+    onBack: () -> Unit = {},
 ) {
     // TODO: reemplazar con ViewModel state
     val items = remember {
