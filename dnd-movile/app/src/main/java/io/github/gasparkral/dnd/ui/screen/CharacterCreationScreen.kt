@@ -13,6 +13,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.gasparkral.dnd.infra.dbstruct.Character
+import io.github.gasparkral.dnd.infra.service.CharacterService
+import io.github.gasparkral.dnd.ui.theme.*
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 /**
  * Wizard de creación de personaje al estilo DnD 5.5e (2024).
@@ -24,8 +29,6 @@ import androidx.compose.ui.unit.dp
  *  3 - Trasfondo (Background)
  *  4 - Atributos (point buy simplificado)
  *  5 - Resumen y confirmación
- *
- *  TODO: conectar con CharacterDAO para persistir al confirmar.
  */
 @Composable
 fun CharacterCreationScreen(
@@ -33,10 +36,12 @@ fun CharacterCreationScreen(
     onBack: () -> Unit = {},
     onCharacterCreated: () -> Unit = {}
 ) {
+    val characterService: CharacterService = koinInject()
+    val scope = rememberCoroutineScope()
+
     var step by remember { mutableIntStateOf(0) }
     val totalSteps = 6
 
-    // Estado del wizard — sin modelo de datos definitivo aún
     var charName by remember { mutableStateOf("") }
     var selectedSpecies by remember { mutableStateOf("") }
     var selectedClass by remember { mutableStateOf("") }
@@ -48,21 +53,18 @@ fun CharacterCreationScreen(
         )
     }
 
+    var isSaving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+
     Column(modifier.padding(16.dp)) {
 
-        // Cabecera con paso actual
+        // ── Cabecera ──────────────────────────────────────────────────────
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (step > 0) {
-                IconButton(onClick = { step-- }) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Paso anterior")
-                }
-            } else {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Cancelar")
-                }
+            IconButton(onClick = { if (step > 0) step-- else onBack() }) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = if (step > 0) "Paso anterior" else "Cancelar")
             }
             Spacer(Modifier.width(8.dp))
             Text(
@@ -74,6 +76,8 @@ fun CharacterCreationScreen(
 
         LinearProgressIndicator(
             progress = { (step + 1).toFloat() / totalSteps },
+            color = Gold,
+            trackColor = Iron,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
@@ -81,7 +85,7 @@ fun CharacterCreationScreen(
 
         Spacer(Modifier.height(8.dp))
 
-        // Contenido según el paso
+        // ── Contenido del paso ────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -98,7 +102,19 @@ fun CharacterCreationScreen(
             }
         }
 
-        // Botón avanzar / confirmar
+        // ── Error de guardado ─────────────────────────────────────────────
+        if (saveError != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "✦ $saveError",
+                color = Ember,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // ── Botón avanzar / guardar ───────────────────────────────────────
         val canAdvance = when (step) {
             0 -> charName.isNotBlank()
             1 -> selectedSpecies.isNotBlank()
@@ -109,28 +125,61 @@ fun CharacterCreationScreen(
 
         Button(
             onClick = {
-                if (step < totalSteps - 1) step++
-                else {
-                    // TODO: llamar al DAO para persistir el personaje
-                    onCharacterCreated()
+                if (step < totalSteps - 1) {
+                    step++
+                } else {
+                    saveError = null
+                    isSaving = true
+                    scope.launch {
+                        val character = Character(
+                            characterName = charName,
+                            characterBackground = selectedBackground,
+                            characterClass = selectedClass,
+                            characterRaze = selectedSpecies,
+                            str = attributes["FUE"] ?: 10,
+                            dex = attributes["DES"] ?: 10,
+                            con = attributes["CON"] ?: 10,
+                            int = attributes["INT"] ?: 10,
+                            wis = attributes["SAB"] ?: 10,
+                            cha = attributes["CAR"] ?: 10,
+                            exp = 0,
+                            level = 1
+                        )
+                        characterService.createNewCharacter(character).fold(
+                            onOk = { onCharacterCreated() },
+                            onErr = { saveError = "No se pudo guardar el personaje" }
+                        )
+                        isSaving = false
+                    }
                 }
             },
-            enabled = canAdvance,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
+            enabled = canAdvance && !isSaving,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Gold,
+                contentColor = Void,
+                disabledContainerColor = Iron,
+                disabledContentColor = Ash,
+            ),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            if (step < totalSteps - 1) {
-                Text("Siguiente")
+            if (isSaving) {
+                CircularProgressIndicator(
+                    color = Void,
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+            } else if (step < totalSteps - 1) {
+                Text("Siguiente", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(4.dp))
                 Icon(Icons.Filled.ArrowForward, contentDescription = null)
             } else {
-                Text("Crear personaje")
+                Text("Crear personaje", style = MaterialTheme.typography.labelLarge)
             }
         }
     }
 }
 
-// ─── Pasos ───────────────────────────────────────────────────────────────────
+// ─── Pasos ────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun StepName(name: String, onChange: (String) -> Unit) {
@@ -142,6 +191,13 @@ private fun StepName(name: String, onChange: (String) -> Unit) {
             onValueChange = onChange,
             label = { Text("Nombre del personaje") },
             singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Gold,
+                unfocusedBorderColor = Iron,
+                focusedTextColor = Parchment,
+                unfocusedTextColor = Parchment,
+                cursorColor = Aurum,
+            ),
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -149,7 +205,6 @@ private fun StepName(name: String, onChange: (String) -> Unit) {
 
 @Composable
 private fun StepSpecies(selected: String, onSelect: (String) -> Unit) {
-    // Especies del manual 2024
     val species = listOf(
         "Humano", "Elfo", "Enano", "Mediano", "Gnomo",
         "Semiorco", "Semielfo", "Tiefling", "Dracónido", "Aasimar"
@@ -157,9 +212,7 @@ private fun StepSpecies(selected: String, onSelect: (String) -> Unit) {
     Column {
         Text("Elige tu especie", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        species.forEach { s ->
-            OptionRow(label = s, selected = selected == s, onClick = { onSelect(s) })
-        }
+        species.forEach { s -> OptionRow(s, selected == s) { onSelect(s) } }
     }
 }
 
@@ -173,9 +226,7 @@ private fun StepClass(selected: String, onSelect: (String) -> Unit) {
     Column {
         Text("Elige tu clase", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        classes.forEach { c ->
-            OptionRow(label = c, selected = selected == c, onClick = { onSelect(c) })
-        }
+        classes.forEach { c -> OptionRow(c, selected == c) { onSelect(c) } }
     }
 }
 
@@ -193,16 +244,12 @@ private fun StepBackground(selected: String, onSelect: (String) -> Unit) {
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
-        backgrounds.forEach { b ->
-            OptionRow(label = b, selected = selected == b, onClick = { onSelect(b) })
-        }
+        backgrounds.forEach { b -> OptionRow(b, selected == b) { onSelect(b) } }
     }
 }
 
 @Composable
 private fun StepAttributes(attributes: MutableMap<String, Int>) {
-    // Point buy simplificado: cada stat entre 8-15, presupuesto de 27 puntos
-    // Coste: 8=0, 9=1, 10=2, 11=3, 12=4, 13=5, 14=7, 15=9
     val costTable = mapOf(8 to 0, 9 to 1, 10 to 2, 11 to 3, 12 to 4, 13 to 5, 14 to 7, 15 to 9)
     val budget = 27
     val spent = attributes.values.sumOf { costTable[it] ?: 0 }
@@ -210,13 +257,12 @@ private fun StepAttributes(attributes: MutableMap<String, Int>) {
 
     Column {
         Text("Atributos (Point Buy)", style = MaterialTheme.typography.titleMedium)
-        Row {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Puntos restantes: ", style = MaterialTheme.typography.bodyMedium)
             Text(
                 "$remaining",
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (remaining < 0) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.primary
+                color = if (remaining < 0) Ember else Aurum
             )
         }
         Spacer(Modifier.height(8.dp))
@@ -225,29 +271,24 @@ private fun StepAttributes(attributes: MutableMap<String, Int>) {
             val value = attributes[stat] ?: 10
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
             ) {
-                Text(stat, modifier = Modifier.width(48.dp))
+                Text(stat, modifier = Modifier.width(48.dp), style = MaterialTheme.typography.labelLarge)
                 IconButton(
                     onClick = { if (value > 8) attributes[stat] = value - 1 },
                     enabled = value > 8
-                ) { Text("-") }
-                Text(
-                    "$value",
-                    modifier = Modifier.width(32.dp),
-                    style = MaterialTheme.typography.titleSmall
-                )
+                ) { Text("-", color = Aurum) }
+                Text("$value", modifier = Modifier.width(32.dp), style = MaterialTheme.typography.titleSmall)
                 IconButton(
                     onClick = {
                         val nextCost = (costTable[value + 1] ?: 99) - (costTable[value] ?: 0)
                         if (value < 15 && remaining >= nextCost) attributes[stat] = value + 1
                     },
                     enabled = value < 15
-                ) { Text("+") }
-                Text(
-                    "Mod: ${modifier(value)}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                ) { Text("+", color = Aurum) }
+                Text("Mod: ${statModifier(value)}", style = MaterialTheme.typography.bodySmall, color = Ash)
             }
         }
     }
@@ -270,6 +311,7 @@ private fun StepSummary(
         SummaryRow("Trasfondo", background)
         Spacer(Modifier.height(8.dp))
         Text("Atributos", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(attributes.entries.toList()) { (stat, value) ->
                 AttributeChip(stat, value)
@@ -278,7 +320,7 @@ private fun StepSummary(
     }
 }
 
-// ─── Utilidades de UI ────────────────────────────────────────────────────────
+// ─── Utilidades de UI ─────────────────────────────────────────────────────────
 
 @Composable
 private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -288,34 +330,44 @@ private fun OptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Text(label)
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(selectedColor = Gold, unselectedColor = Ash)
+        )
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable
 private fun SummaryRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text("$label: ", style = MaterialTheme.typography.bodyMedium)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Text("$label: ", style = MaterialTheme.typography.bodyMedium, color = Ash)
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable
 private fun AttributeChip(stat: String, value: Int) {
-    Card {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Crypt)
+    ) {
         Column(
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(stat, style = MaterialTheme.typography.labelSmall)
             Text("$value", style = MaterialTheme.typography.titleSmall)
-            Text(modifier(value), style = MaterialTheme.typography.bodySmall)
+            Text(statModifier(value), style = MaterialTheme.typography.bodySmall, color = Aurum)
         }
     }
 }
 
-private fun modifier(score: Int): String {
+private fun statModifier(score: Int): String {
     val mod = (score - 10) / 2
     return if (mod >= 0) "+$mod" else "$mod"
 }

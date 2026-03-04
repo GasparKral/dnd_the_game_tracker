@@ -8,7 +8,8 @@ import org.koin.dsl.module
 
 val appModule = module {
 
-    // Base de datos Room — singleton
+    // ── Base de datos Room — singleton ────────────────────────────────────────
+
     single {
         Room.databaseBuilder(
             androidContext(),
@@ -17,9 +18,11 @@ val appModule = module {
         ).build()
     }
 
-    // DAO — extraído del singleton de la BD
+    // ── DAO — extraído del singleton de la BD ─────────────────────────────────
+
     single { get<AppDatabase>().characterDao() }
 
-    // Service — recibe el DAO por constructor
+    // ── Services ──────────────────────────────────────────────────────────────
+
     single { CharacterService(get()) }
 }

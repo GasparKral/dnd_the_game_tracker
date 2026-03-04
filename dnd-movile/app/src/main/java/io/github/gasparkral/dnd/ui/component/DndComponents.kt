@@ -33,25 +33,31 @@ fun DndCard(
     val cornerColor = Gold
     Box(
         modifier = modifier
-            .background(
-                brush = Brush.linearGradientBrush(
-                    colors = listOf(Crypt, Abyss),
-                    start = Offset(0f, 0f),
-                    end = Offset(Float.MAX_VALUE, Float.MAX_VALUE)
-                ),
-                shape = DndShape
-            )
-            .border(width = 1.dp, color = Iron, shape = DndShape)
             .drawBehind {
+                // Fondo degradado diagonal calculado con size real
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Crypt, Abyss),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, size.height)
+                    ),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
+                )
+                // Borde
+                drawRoundRect(
+                    color = Iron,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                )
+                // Ornamentos de esquina dorados
                 val c = cornerSize.toPx()
                 val stroke = 1.dp.toPx()
                 val col = cornerColor.copy(alpha = 0.55f)
-                // Esquina superior izquierda
-                drawLine(col, Offset(8.dp.toPx(), 8.dp.toPx()), Offset(8.dp.toPx() + c, 8.dp.toPx()), stroke)
-                drawLine(col, Offset(8.dp.toPx(), 8.dp.toPx()), Offset(8.dp.toPx(), 8.dp.toPx() + c), stroke)
-                // Esquina inferior derecha
-                drawLine(col, Offset(size.width - 8.dp.toPx(), size.height - 8.dp.toPx()), Offset(size.width - 8.dp.toPx() - c, size.height - 8.dp.toPx()), stroke)
-                drawLine(col, Offset(size.width - 8.dp.toPx(), size.height - 8.dp.toPx()), Offset(size.width - 8.dp.toPx(), size.height - 8.dp.toPx() - c), stroke)
+                val margin = 8.dp.toPx()
+                drawLine(col, Offset(margin, margin), Offset(margin + c, margin), stroke)
+                drawLine(col, Offset(margin, margin), Offset(margin, margin + c), stroke)
+                drawLine(col, Offset(size.width - margin, size.height - margin), Offset(size.width - margin - c, size.height - margin), stroke)
+                drawLine(col, Offset(size.width - margin, size.height - margin), Offset(size.width - margin, size.height - margin - c), stroke)
             }
     ) {
         Column(modifier = Modifier.padding(16.dp), content = content)
@@ -96,9 +102,4 @@ fun DndLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-// Extensión cómoda para Brush.linearGradient con Offset
-private fun Brush.Companion.linearGradientBrush(
-    colors: List<Color>,
-    start: Offset,
-    end: Offset
-) = linearGradient(colors = colors, start = start, end = end)
+

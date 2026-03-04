@@ -1,7 +1,10 @@
 package io.github.gasparkral.dnd.ui.component
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
@@ -43,9 +46,13 @@ fun CharacterSelectionItem(
                     text = character.characterName,
                     style = MaterialTheme.typography.titleMedium,
                 )
-                // TODO: cuando el modelo tenga raza/clase mostrarlas aquí
                 Text(
-                    text = "Personaje · Nivel 1",
+                    text = "Personaje · Nivel ${character.level}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ash
+                )
+                Text(
+                    text = character.characterRaze,
                     style = MaterialTheme.typography.bodySmall,
                     color = Ash
                 )

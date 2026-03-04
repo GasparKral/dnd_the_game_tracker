@@ -6,6 +6,7 @@ coreKtx = "1.17.0"
 ktorClientCio = "3.4.0"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.12.4"
+markdown = "0.7.3"
 navigationCompose = "2.9.7"
 composeBom = "2026.02.00"
 
@@ -84,6 +85,7 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitAndroid" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+markdown = { module = "org.jetbrains:markdown", version.ref = "markdown" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }

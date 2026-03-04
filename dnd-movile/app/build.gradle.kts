@@ -79,7 +79,7 @@ dependencies {
     // ── ViewModel ────────────────────────────────────────────────────────────
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
-    // ── Red: Ktor Client (alternativa moderna a Retrofit, multiplatform-ready)
+    // -─ Red: Ktor Client (alternativa moderna a Retrofit, multiplatform-ready)
     // Ktor es más idiomático con corrutinas y kotlinx.serialization
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
@@ -108,7 +108,7 @@ dependencies {
 
     // ── Markdown renderer ─────────────────────────────────────────────────────
     // Para mostrar el lore de Obsidian (notas .md) en la app
-    // implementation("com.github.jeziellago:compose-markdown:0.5.8")
+    implementation(libs.markdown)
 
     // ── Imágenes ──────────────────────────────────────────────────────────────
     implementation(libs.coil.compose)

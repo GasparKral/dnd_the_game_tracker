@@ -14,7 +14,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.gasparkral.dnd.infra.ClientMessage
+import io.github.gasparkral.dnd.infra.HttpManager
 import io.github.gasparkral.dnd.infra.SocketManager
+import io.github.gasparkral.dnd.infra.httpClient
 import io.github.gasparkral.dnd.infra.webSocketClient
 import io.github.gasparkral.dnd.ui.component.DndDivider
 import io.github.gasparkral.dnd.ui.component.DndLabel
@@ -175,6 +177,7 @@ fun tryConnection(): Result<Unit, UIConnectionError> {
     try {
         val url = UrlConnection.URL.replace("https", "wss")
         scope.launch { socket.connect("$url/ws/game") }
+        HttpManager.init(baseUrl = UrlConnection.URL, client = httpClient)
     } catch (e: Exception) {
         return Result.Err(UIConnectionError.ErrorOnConnection)
     }
