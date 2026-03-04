@@ -47,7 +47,7 @@ async fn get_lore_index(State(state): State<SharedState>) -> impl IntoResponse {
     }
 
     // Recorrer el vault buscando .md
-    let entries: Vec<String> = walkdir::WalkDir::new(&vault_path)
+    let entries: Vec<LoreIndexEntry> = walkdir::WalkDir::new(&vault_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
@@ -55,15 +55,18 @@ async fn get_lore_index(State(state): State<SharedState>) -> impl IntoResponse {
                 && e.path().to_string_lossy().to_string().contains("/Lore")
         })
         .filter_map(|e| {
-            // Obtener la ruta relativa al vault (ej: "Lugares/Taberna.md")
-            e.path()
-                .strip_prefix(&vault_path)
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
+            let relative = e.path().strip_prefix(&vault_path).ok()?;
+            let path = relative.to_string_lossy().to_string();
+            let title = relative
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            Some(LoreIndexEntry { path, title })
         })
         .collect();
 
-    (StatusCode::OK, Json(LoreIndex { entries })).into_response()
+    (StatusCode::OK, Json(entries)).into_response()
 }
 
 // GET /api/lore/Lugares/Taberna  →  contenido de esa nota
@@ -128,7 +131,9 @@ struct LoreEntry {
     content: String, // contenido markdown en crudo
 }
 
+/// Entrada ligera del índice — sin contenido, solo metadatos para listar.
 #[derive(Serialize)]
-struct LoreIndex {
-    entries: Vec<String>, // lista de rutas relativas
+struct LoreIndexEntry {
+    path: String,  // ruta relativa dentro del vault (ej: "Lore/Lugares/Taberna.md")
+    title: String, // nombre del fichero sin extensión (ej: "Taberna")
 }

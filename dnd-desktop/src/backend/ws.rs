@@ -1,13 +1,16 @@
 use super::models::messages::*;
-use axum::extract::{
-    ws::{Message, WebSocket},
-    State, WebSocketUpgrade,
-};
-use futures_util::StreamExt;
-use std::sync::Arc;
-use uuid::Uuid;
-
 use crate::states::{AppState, SharedState};
+use axum::{
+    body::Bytes,
+    extract::{
+        ws::{Message, WebSocket},
+        State, WebSocketUpgrade,
+    },
+};
+use futures_util::{SinkExt, StreamExt};
+use std::sync::Arc;
+use tracing::info;
+use uuid::Uuid;
 
 pub async fn handler(
     State(state): State<SharedState>,
@@ -23,6 +26,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     // --- Handshake: esperar identificación del jugador ---
     let player_name = match rx.next().await {
         Some(Ok(Message::Text(text))) => {
+            info!("Handshake recieve");
             match serde_json::from_str::<ClientMessage>(&text) {
                 Ok(ClientMessage::Join {
                     player_name,
@@ -45,18 +49,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         _ => return,
     };
 
-    // Confirmar conexión al jugador
-    // let welcome = ServerMessage::Welcome {
-    //     player_id,
-    //     player_name: player_name.clone(),
-    // };
-    // if tx
-    //     .send(Message::Text(serde_json::to_string(&welcome).unwrap()))
-    //     .await
-    //     .is_err()
-    // {
-    //     return;
-    // }
+    //Confirmar conexión al jugador
+    let welcome = ServerMessage::Welcome {
+        player_id,
+        player_name: player_name.clone(),
+    };
+    let json = serde_json::to_string(&welcome).unwrap();
+    if tx.send(Message::Text(json.into())).await.is_err() {
+        state.ws_pool.remove(&player_id).await;
+        return;
+    }
 
     // Suscripción al canal broadcast
     let mut broadcast_rx = state.ws_pool.subscribe();
