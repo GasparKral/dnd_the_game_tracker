@@ -3,6 +3,7 @@ mod lore;
 mod main_menu;
 mod new_campain;
 mod options_menu;
+mod players;
 
 use super::layouts::dashboard_layout::DashboardLayout;
 use dioxus::prelude::*;
@@ -11,6 +12,7 @@ use lore::*;
 use main_menu::*;
 use new_campain::*;
 use options_menu::*;
+use players::*;
 
 #[derive(Clone, Debug, PartialEq, Routable)]
 pub enum Routes {
@@ -26,4 +28,6 @@ pub enum Routes {
     #[layout(DashboardLayout)]
     #[route("/lore")]
     Lore,
+    #[route("/players")]
+    Players,
 }

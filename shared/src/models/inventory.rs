@@ -7,7 +7,7 @@ pub enum DropType {
     InRange(DiceRoll),
 }
 
-#[derive(Debug, Clone, Hash, Default)]
+#[derive(Debug, Clone, Hash, Default, PartialEq, Eq)]
 pub struct Currency {
     pub copper: u32,
     pub silver: u32,

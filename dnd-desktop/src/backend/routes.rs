@@ -25,6 +25,10 @@ pub fn api_router() -> Router<SharedState> {
         // --- Personajes finalizados ---
         .route("/characters", get(get_all_characters))
         .route("/characters/{id}", get(get_character))
+        // --- Inventario ---
+        .route("/characters/{id}/inventory", get(get_inventory).post(add_item))
+        .route("/characters/{id}/inventory/{item_id}", put(update_item).delete(delete_item))
+        .route("/characters/{id}/currency", put(update_currency))
         // --- Campaña ---
         .route("/campaign", get(get_campaign).post(create_campaign))
         // --- Combate ---
@@ -362,6 +366,80 @@ async fn get_character(
         )
             .into_response(),
     }
+}
+
+// ===========================================================================
+// Inventario
+// ===========================================================================
+
+use shared::api_types::inventory::{AddItemRequest, InventoryItem, InventoryResponse, UpdateCurrencyRequest, UpdateItemRequest};
+
+async fn get_inventory(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    match state.0.persistence.get_inventory(id).await {
+        Ok((items, currency)) => (
+            StatusCode::OK,
+            Json(InventoryResponse::from_parts(items, currency)),
+        ).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn add_item(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddItemRequest>,
+) -> impl IntoResponse {
+    let item = InventoryItem::new(req.name, req.category, req.description, req.quantity);
+    let item = InventoryItem { weight: req.weight, notes: req.notes, ..item };
+    match state.0.persistence.add_item(id, item).await {
+        Ok(i) => (StatusCode::CREATED, Json(i)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn update_item(
+    State(state): State<SharedState>,
+    Path((character_id, item_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateItemRequest>,
+) -> impl IntoResponse {
+    match state.0.persistence.update_item(character_id, item_id, req).await {
+        Ok(i) => (StatusCode::OK, Json(i)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn delete_item(
+    State(state): State<SharedState>,
+    Path((character_id, item_id)): Path<(Uuid, Uuid)>,
+) -> impl IntoResponse {
+    match state.0.persistence.delete_item(character_id, item_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn update_currency(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateCurrencyRequest>,
+) -> impl IntoResponse {
+    match state.0.persistence.update_currency(id, req).await {
+        Ok(c) => (StatusCode::OK, Json(c)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+fn inventory_error(e: crate::persistence::PersistenceError) -> axum::response::Response {
+    use crate::persistence::PersistenceError;
+    let status = match &e {
+        PersistenceError::NotFound => StatusCode::NOT_FOUND,
+        PersistenceError::NoCampaign => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(serde_json::json!({ "error": e.to_string() }))).into_response()
 }
 
 // ===========================================================================

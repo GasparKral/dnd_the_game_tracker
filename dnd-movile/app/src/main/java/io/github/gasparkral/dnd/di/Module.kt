@@ -2,6 +2,7 @@ package io.github.gasparkral.dnd.di
 
 import io.github.gasparkral.dnd.infra.repository.DraftRepository
 import io.github.gasparkral.dnd.ui.viewmodel.CharacterCreationViewModel
+import io.github.gasparkral.dnd.ui.viewmodel.InventoryViewModel
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
@@ -18,6 +19,13 @@ val appModule = module {
         CharacterCreationViewModel(
             repo = get(),
             playerName = playerName,
+        )
+    }
+
+    viewModel { (characterId: String) ->
+        InventoryViewModel(
+            characterId = characterId,
+            repo = get(),
         )
     }
 }
