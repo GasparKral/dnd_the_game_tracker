@@ -16,6 +16,10 @@ pub enum ClientMessage {
         result: u32,
     },
     RequestSync,
+    /// El jugador modificó su inventario — avisa al DM para refrescar
+    InventoryUpdated {
+        character_id: Uuid,
+    },
 }
 
 /// Mensajes que van DESDE el servidor al móvil
@@ -56,6 +60,10 @@ pub enum ServerMessage {
     // DM → todos
     Announcement {
         text: String,
+    },
+    /// El inventario o monedas de un personaje cambiaron — el jugador debe recargar
+    InventoryChanged {
+        character_id: Uuid,
     },
 }
 

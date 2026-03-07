@@ -34,15 +34,24 @@ fun CharacterSelectionScreen(
 
     LaunchedEffect(playerName) {
         isLoading = true
+        error = null
         repo.getCharacters(playerName).fold(
             onOk = { response ->
                 characters = response.characters
                 isLoading = false
             },
-            onErr = {
-                // Si no hay campaña activa (503) no es un error crítico — lista vacía
-                characters = emptyList()
-                isLoading = false
+            onErr = { err ->
+                when {
+                    // 503 = no hay campaña activa todavía — lista vacía es el comportamiento esperado
+                    err.toString().contains("503") -> {
+                        characters = emptyList()
+                        isLoading = false
+                    }
+                    else -> {
+                        error = err.toString()
+                        isLoading = false
+                    }
+                }
             }
         )
     }

@@ -23,6 +23,7 @@ fun DashboardScreen(
     onNavigateToInventory: () -> Unit = {},
     onNavigateToLore: () -> Unit = {},
     onNavigateToCombat: () -> Unit = {},
+    onNavigateToSpells: () -> Unit = {},
 ) {
     val repo: DraftRepository = koinInject()
     var character by remember { mutableStateOf<SavedCharacter?>(null) }
@@ -30,26 +31,26 @@ fun DashboardScreen(
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(draftId) {
-        // Carga desde personajes guardados — funciona tras reinicio del servidor
         repo.getCharacter(draftId).fold(
-            onOk = { character = it; isLoading = false },
+            onOk  = { character = it; isLoading = false },
             onErr = { error = "No se pudo cargar el personaje"; isLoading = false }
         )
     }
 
     when {
-        isLoading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        isLoading  -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Gold)
         }
         error != null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(error!!, color = Ember, style = MaterialTheme.typography.bodyMedium)
         }
         else -> DashboardContent(
-            modifier = modifier,
-            character = character!!,
+            modifier              = modifier,
+            character             = character!!,
             onNavigateToInventory = onNavigateToInventory,
-            onNavigateToLore = onNavigateToLore,
-            onNavigateToCombat = onNavigateToCombat,
+            onNavigateToLore      = onNavigateToLore,
+            onNavigateToCombat    = onNavigateToCombat,
+            onNavigateToSpells    = onNavigateToSpells,
         )
     }
 }
@@ -61,21 +62,22 @@ private fun DashboardContent(
     onNavigateToInventory: () -> Unit,
     onNavigateToLore: () -> Unit,
     onNavigateToCombat: () -> Unit,
+    onNavigateToSpells: () -> Unit,
 ) {
     Column(modifier.padding(16.dp)) {
 
         // ── Cabecera ──────────────────────────────────────────────────────
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
+            modifier          = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 8.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.AccountCircle,
+                imageVector        = Icons.Filled.AccountCircle,
                 contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = Aurum,
+                modifier           = Modifier.size(48.dp),
+                tint               = Aurum,
             )
             Spacer(Modifier.width(12.dp))
             Column {
@@ -90,44 +92,52 @@ private fun DashboardContent(
 
         // ── Barra de estado ───────────────────────────────────────────────
         Row(
-            modifier = Modifier
+            modifier              = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            StatChip(label = "PG", value = "${character.currentHp}/${character.maxHp}", modifier = Modifier.weight(1f))
-            StatChip(label = "Niv", value = "${character.level}", modifier = Modifier.weight(1f))
-            StatChip(label = "XP", value = "${character.xp}", modifier = Modifier.weight(1f))
+            StatChip(label = "PG",  value = "${character.currentHp}/${character.maxHp}", modifier = Modifier.weight(1f))
+            StatChip(label = "Niv", value = "${character.level}",                        modifier = Modifier.weight(1f))
+            StatChip(label = "XP",  value = "${character.xp}",                           modifier = Modifier.weight(1f))
         }
 
         // ── Grid de accesos ───────────────────────────────────────────────
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            columns               = GridCells.Fixed(2),
+            verticalArrangement   = Arrangement.spacedBy(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 DashboardCard(
-                    title = "Inventario",
+                    title    = "Inventario",
                     subtitle = "Objetos y equipo",
-                    icon = Icons.Filled.ShoppingBag,
-                    onClick = onNavigateToInventory,
+                    icon     = Icons.Filled.ShoppingBag,
+                    onClick  = onNavigateToInventory,
                 )
             }
             item {
                 DashboardCard(
-                    title = "Lore",
-                    subtitle = "Mundo y conocimiento",
-                    icon = Icons.Filled.MenuBook,
-                    onClick = onNavigateToLore,
+                    title    = "Hechizos",
+                    subtitle = "Grimorio y espacios",
+                    icon     = Icons.Filled.AutoAwesome,
+                    onClick  = onNavigateToSpells,
                 )
             }
             item {
                 DashboardCard(
-                    title = "Combate",
+                    title    = "Combate",
                     subtitle = "Turno e iniciativa",
-                    icon = Icons.Filled.GpsFixed,
-                    onClick = onNavigateToCombat,
+                    icon     = Icons.Filled.GpsFixed,
+                    onClick  = onNavigateToCombat,
+                )
+            }
+            item {
+                DashboardCard(
+                    title    = "Lore",
+                    subtitle = "Mundo y conocimiento",
+                    icon     = Icons.Filled.MenuBook,
+                    onClick  = onNavigateToLore,
                 )
             }
         }
@@ -137,11 +147,11 @@ private fun DashboardContent(
 @Composable
 private fun StatChip(label: String, value: String, modifier: Modifier = Modifier) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Crypt),
+        colors   = CardDefaults.cardColors(containerColor = Crypt),
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier
+            modifier            = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -154,28 +164,28 @@ private fun StatChip(label: String, value: String, modifier: Modifier = Modifier
 
 @Composable
 private fun DashboardCard(
-    title: String,
+    title:    String,
     subtitle: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
+    icon:     ImageVector,
+    onClick:  () -> Unit,
 ) {
     Card(
-        onClick = onClick,
+        onClick  = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f),
         colors = CardDefaults.cardColors(containerColor = Crypt),
     ) {
         Column(
-            modifier = Modifier
+            modifier            = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement   = Arrangement.Center,
+            horizontalAlignment   = Alignment.CenterHorizontally,
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(36.dp), tint = Gold)
             Spacer(Modifier.height(8.dp))
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(title,    style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Ash)
         }
     }

@@ -67,12 +67,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     loop {
         tokio::select! {
             // Mensajes broadcast → reenviar al jugador
-          //  Ok(msg) = broadcast_rx.recv() => {
-          //      let json = serde_json::to_string(&msg).unwrap();
-          //      if tx.send(Message::Text(json)).await.is_err() {
-          //          break;
-          //      }
-          //  }
+            Ok(msg) = broadcast_rx.recv() => {
+                let json = serde_json::to_string(&msg).unwrap();
+                if tx.send(Message::Text(json.into())).await.is_err() {
+                    break;
+                }
+            }
 
             // Mensajes entrantes del jugador → procesar
             Some(result) = rx.next() => {
@@ -111,9 +111,12 @@ async fn handle_client_message(msg: ClientMessage, player_id: Uuid, state: &Arc<
             //    });
         }
         ClientMessage::RequestSync => {
-            // El jugador pide su estado actual (reconexión)
-            // El DM tendrá que confirmar - por ahora solo logueamos
             tracing::info!("Jugador {} solicita sincronización", player_id);
+        }
+        ClientMessage::InventoryUpdated { character_id } => {
+            tracing::info!("Jugador {} actualizó inventario de {}", player_id, character_id);
+            // Re-emitir como ServerMessage para que el DM (si está suscrito) recargue
+            state.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id });
         }
         _ => {}
     }

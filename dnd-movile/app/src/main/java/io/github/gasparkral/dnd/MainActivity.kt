@@ -105,8 +105,9 @@ class MainActivity : ComponentActivity() {
                                     .padding(innerPadding),
                                 draftId = route.draftId,
                                 onNavigateToInventory = { navController.navigate(Inventory(route.draftId)) },
-                                onNavigateToLore = { navController.navigate(Lore) },
-                                onNavigateToCombat = { navController.navigate(Combat(route.draftId)) },
+                                onNavigateToLore      = { navController.navigate(Lore) },
+                                onNavigateToCombat    = { navController.navigate(Combat(route.draftId)) },
+                                onNavigateToSpells    = { navController.navigate(Spells(route.draftId)) },
                             )
                         }
 
@@ -128,7 +129,7 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .padding(innerPadding),
                                 draftId = route.draftId,
-                                onBack = { navController.popBackStack() },
+                                onBack  = { navController.popBackStack() },
                             )
                         }
 
@@ -140,7 +141,19 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .padding(innerPadding),
                                 draftId = route.draftId,
-                                onBack = { navController.popBackStack() },
+                                onBack  = { navController.popBackStack() },
+                            )
+                        }
+
+                        // ── Hechizos ───────────────────────────────────────
+                        composable<Spells> { backStackEntry ->
+                            val route = backStackEntry.toRoute<Spells>()
+                            SpellScreen(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding),
+                                draftId = route.draftId,
+                                onBack  = { navController.popBackStack() },
                             )
                         }
                     }
@@ -154,27 +167,14 @@ class MainActivity : ComponentActivity() {
 // Rutas de navegación
 // ---------------------------------------------------------------------------
 
-@Serializable
-object SetupUsername
+@Serializable object SetupUsername
+@Serializable object RequestUrl
+@Serializable object CharacterSelection
+@Serializable object CharacterCreation
+@Serializable object Lore
 
-@Serializable
-object RequestUrl
-
-@Serializable
-object CharacterSelection
-
-@Serializable
-object CharacterCreation
-
-@Serializable
-object Lore
-
-/** Dashboard, Inventario y Combate reciben el draftId para consultar la API. */
-@Serializable
-data class Dashboard(val draftId: String)
-
-@Serializable
-data class Inventory(val draftId: String)
-
-@Serializable
-data class Combat(val draftId: String)
+/** Dashboard, Inventario, Combate y Hechizos reciben el draftId. */
+@Serializable data class Dashboard(val draftId: String)
+@Serializable data class Inventory(val draftId: String)
+@Serializable data class Combat(val draftId: String)
+@Serializable data class Spells(val draftId: String)

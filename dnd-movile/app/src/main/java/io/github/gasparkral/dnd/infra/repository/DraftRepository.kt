@@ -17,6 +17,12 @@ import io.github.gasparkral.dnd.model.SavedCharacter
 import io.github.gasparkral.dnd.model.UpdateCurrencyRequest
 import io.github.gasparkral.dnd.model.UpdateItemRequest
 import io.github.gasparkral.dnd.model.UpdateDraftRequest
+import io.github.gasparkral.dnd.model.AddSpellRequest
+import io.github.gasparkral.dnd.model.Spell
+import io.github.gasparkral.dnd.model.SpellSlotLevel
+import io.github.gasparkral.dnd.model.SpellsResponse
+import io.github.gasparkral.dnd.model.TogglePreparedResponse
+import io.github.gasparkral.dnd.model.UpdateSpellSlotsRequest
 
 class DraftRepository {
 
@@ -89,4 +95,26 @@ class DraftRepository {
             endpoint = "/api/character/draft/${request.draftId}",
             body = request,
         )
+
+    // ── Hechizos ─────────────────────────────────────────────────────────────────────
+
+    /** Espacios, conocidos y preparados de un personaje. */
+    suspend fun getSpells(characterId: String): HttpResult<SpellsResponse> =
+        HttpManager.get("/api/characters/$characterId/spells")
+
+    /** Añade un hechizo conocido. */
+    suspend fun addSpell(characterId: String, req: AddSpellRequest): HttpResult<Spell> =
+        HttpManager.post("/api/characters/$characterId/spells", req)
+
+    /** Elimina un hechizo conocido. */
+    suspend fun removeSpell(characterId: String, spellId: String): HttpResult<Unit> =
+        HttpManager.delete("/api/characters/$characterId/spells/$spellId")
+
+    /** Alterna el estado preparado/no-preparado de un hechizo. */
+    suspend fun togglePrepared(characterId: String, spellId: String): HttpResult<TogglePreparedResponse> =
+        HttpManager.post("/api/characters/$characterId/spells/$spellId/toggle_prepared", Unit)
+
+    /** Guarda los espacios de hechizo (total y restantes por nivel). */
+    suspend fun updateSpellSlots(characterId: String, req: UpdateSpellSlotsRequest): HttpResult<List<SpellSlotLevel>> =
+        HttpManager.put("/api/characters/$characterId/spell_slots", req)
 }

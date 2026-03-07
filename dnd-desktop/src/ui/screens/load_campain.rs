@@ -1,52 +1,34 @@
+use crate::persistence::CampaignSummaryEntry;
 use crate::states::SharedState;
 use dioxus::prelude::*;
 use std::path::PathBuf;
+
+// ---------------------------------------------------------------------------
+// Pantalla: lista de todas las campañas guardadas
+// ---------------------------------------------------------------------------
 
 #[component]
 pub fn LoadCampainMenu() -> Element {
     let nav = navigator();
     let state = use_context::<SharedState>();
 
-    // Estado de la pantalla
-    let mut campaign_name = use_signal(|| String::new());
-    let mut campaign_desc = use_signal(|| String::new());
-    let mut campaign_chars = use_signal(|| 0usize);
-    let mut campaign_updated = use_signal(|| String::new());
-    let mut vault_path = use_signal(|| String::new());
-    let mut new_vault_dir = use_signal(|| PathBuf::new());
-
-    let mut status = use_signal(|| LoadStatus::Checking);
+    let mut campaigns: Signal<Vec<CampaignSummaryEntry>> = use_signal(|| vec![]);
+    let mut status = use_signal(|| PageStatus::Loading);
+    let mut confirm_delete: Signal<Option<String>> = use_signal(|| None); // filename a confirmar
     let mut error_msg = use_signal(|| String::new());
 
-    // Intentar leer la campaña guardada al montar el componente
+    // Cargar lista al montar
     use_effect({
         let state = state.clone();
         move || {
             let state = state.clone();
-            let mut campaign_name = campaign_name.clone();
-            let mut campaign_desc = campaign_desc.clone();
-            let mut campaign_chars = campaign_chars.clone();
-            let mut campaign_updated = campaign_updated.clone();
-            let mut vault_path = vault_path.clone();
-            let mut status = status.clone();
-
             spawn(async move {
-                match state.0.persistence.load().await {
-                    Ok(Some(c)) => {
-                        campaign_name.set(c.name.clone());
-                        campaign_desc.set(c.description.clone());
-                        campaign_chars.set(c.characters.len());
-                        campaign_updated.set(
-                            // Mostrar solo la fecha, no la hora completa
-                            c.updated_at.get(..10).unwrap_or(&c.updated_at).to_string()
-                        );
-                        vault_path.set(
-                            c.vault_path.unwrap_or_else(|| "Sin vault configurado".into())
-                        );
-                        status.set(LoadStatus::Found);
+                match state.0.persistence.list_campaigns().await {
+                    Ok(list) => {
+                        campaigns.set(list.clone());
+                        status.set(if list.is_empty() { PageStatus::Empty } else { PageStatus::Ready });
                     }
-                    Ok(None) => status.set(LoadStatus::NotFound),
-                    Err(e) => status.set(LoadStatus::Error(e.to_string())),
+                    Err(e) => status.set(PageStatus::Error(e.to_string())),
                 }
             });
         }
@@ -57,153 +39,159 @@ pub fn LoadCampainMenu() -> Element {
             class: "min-w-screen min-h-screen flex flex-col items-center justify-center",
 
             div {
-                class: "w-xl border rounded-md p-8 flex flex-col gap-6",
+                class: "w-2xl border border-stone-700 rounded-xl p-10 flex flex-col gap-8 bg-stone-900/60",
 
-                h2 { class: "text-xl font-semibold", "Cargar Campaña" }
+                // ── Cabecera ──────────────────────────────────────────────
+                div { class: "flex items-center justify-between",
+                    h2 { class: "text-xl font-semibold", "Campañas Guardadas" }
+                    button {
+                        class: "px-4 py-2 text-sm border border-stone-600 rounded-lg text-stone-200 hover:bg-stone-700 hover:text-white transition-colors",
+                        onclick: move |_| nav.go_back(),
+                        "← Volver"
+                    }
+                }
 
                 match status() {
-                    // ── Comprobando ───────────────────────────────────────
-                    LoadStatus::Checking => rsx!(
-                        div { class: "flex items-center gap-3 text-stone-400",
+                    PageStatus::Loading => rsx!(
+                        div { class: "flex items-center gap-3 text-stone-400 justify-center py-8",
                             span { class: "animate-pulse", "⏳" }
-                            span { "Buscando campaña guardada…" }
+                            span { "Buscando campañas…" }
                         }
                     ),
 
-                    // ── No hay campaña ────────────────────────────────────
-                    LoadStatus::NotFound => rsx!(
-                        div { class: "flex flex-col gap-4",
-                            div { class: "text-stone-400 text-center py-4",
-                                p { class: "text-2xl mb-2", "🗺️" }
-                                p { "No hay ninguna campaña guardada." }
-                                p { class: "text-sm mt-1", "Crea una nueva desde el menú principal." }
-                            }
-                            button {
-                                class: "w-full px-4 py-2 border rounded",
-                                onclick: move |_| { nav.go_back(); },
-                                "Volver"
-                            }
+                    PageStatus::Error(msg) => rsx!(
+                        div { class: "text-red-400 text-sm p-3 border border-red-800 rounded bg-red-950",
+                            "⚠ {msg}" }
+                    ),
+
+                    PageStatus::Empty => rsx!(
+                        div { class: "text-stone-400 text-center py-8",
+                            p { class: "text-3xl mb-3", "🗺️" }
+                            p { "No hay ninguna campaña guardada." }
+                            p { class: "text-sm mt-1 text-stone-500",
+                                "Crea una nueva desde el menú principal." }
                         }
                     ),
 
-                    // ── Error ─────────────────────────────────────────────
-                    LoadStatus::Error(msg) => rsx!(
-                        div { class: "flex flex-col gap-4",
-                            div { class: "text-red-400 text-sm p-3 border border-red-800 rounded bg-red-950",
-                                "⚠ Error al leer la campaña: {msg}"
-                            }
-                            button {
-                                class: "w-full px-4 py-2 border rounded",
-                                onclick: move |_| { nav.go_back(); },
-                                "Volver"
-                            }
-                        }
-                    ),
+                    PageStatus::Ready => rsx!(
+                        div { class: "flex flex-col gap-3",
+                            for entry in campaigns.read().iter() {
+                                {
+                                    let entry = entry.clone();
+                                    let filename = entry.filename.clone();
+                                    let filename_del = filename.clone();
+                                    let state_load = state.clone();
+                                    let nav_load = nav.clone();
 
-                    // ── Campaña encontrada ────────────────────────────────
-                    LoadStatus::Found => rsx!(
-                        div { class: "flex flex-col gap-5",
+                                    rsx!(
+                                        div {
+                                            key: "{filename}",
+                                            class: "border rounded-lg p-4 bg-stone-900 flex items-start justify-between gap-4",
 
-                            // Resumen de la campaña
-                            div { class: "border rounded p-4 bg-stone-900 flex flex-col gap-2",
-                                div { class: "flex items-center justify-between",
-                                    h3 { class: "text-lg font-semibold", "{campaign_name.read()}" }
-                                    span { class: "text-xs text-stone-500", "Guardada: {campaign_updated.read()}" }
-                                }
-                                if !campaign_desc.read().is_empty() {
-                                    p { class: "text-sm text-stone-400", "{campaign_desc.read()}" }
-                                }
-                                div { class: "flex gap-6 mt-2 text-sm",
-                                    span { class: "text-amber-400",
-                                        "👥 {campaign_chars.read()} personaje(s)"
-                                    }
-                                    span { class: "text-stone-500 truncate",
-                                        "📁 {vault_path.read()}"
-                                    }
-                                }
-                            }
-
-                            // Cambiar vault (opcional)
-                            div { class: "flex flex-col gap-1",
-                                label { class: "text-sm text-stone-400",
-                                    "Cambiar vault de Obsidian (opcional)"
-                                }
-                                input {
-                                    class: "w-full",
-                                    r#type: "file",
-                                    directory: true,
-                                    oninput: move |e| {
-                                        if let Some(path) = e.files().first() {
-                                            new_vault_dir.set(PathBuf::from(path.clone().path()));
-                                            error_msg.set(String::new());
-                                        }
-                                    },
-                                }
-                                if !new_vault_dir.read().as_os_str().is_empty() {
-                                    span { class: "text-xs text-stone-500",
-                                        "📁 {new_vault_dir.read().display()}"
-                                    }
-                                }
-                            }
-
-                            // Error inline
-                            if !error_msg.read().is_empty() {
-                                span { class: "text-red-400 text-sm", "{error_msg.read()}" }
-                            }
-
-                            // Botones
-                            div { class: "flex gap-4 pt-2",
-                                button {
-                                    class: "flex-1 px-4 py-2 border rounded",
-                                    onclick: move |_| { nav.go_back(); },
-                                    "Volver"
-                                }
-                                button {
-                                    class: "flex-1 px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 font-semibold",
-                                    onclick: {
-                                        let state = state.clone();
-                                        let nav = nav.clone();
-                                        move |_| {
-                                            let state = state.clone();
-                                            let nav = nav.clone();
-                                            let new_vault = new_vault_dir.read().clone();
-                                            let mut error_msg = error_msg.clone();
-
-                                            spawn(async move {
-                                                // Si se eligió un nuevo vault, actualizar y abrir
-                                                if !new_vault.as_os_str().is_empty() {
-                                                    // Persistir la nueva ruta
-                                                    if let Err(e) = state.0.persistence
-                                                        .set_vault_path(new_vault.to_string_lossy().to_string())
-                                                        .await
-                                                    {
-                                                        error_msg.set(format!("Error al guardar el vault: {e}"));
-                                                        return;
-                                                    }
-                                                    // Abrirlo en el VaultManager
-                                                    if let Err(e) = state.0.vault.open(new_vault).await {
-                                                        error_msg.set(format!("Error al abrir el vault: {e}"));
-                                                        return;
-                                                    }
-                                                } else if let Some(campaign) = state.0.persistence.current().await {
-                                                    // Reabrir el vault guardado anteriormente si existe
-                                                    if let Some(saved_path) = campaign.vault_path {
-                                                        let p = std::path::PathBuf::from(&saved_path);
-                                                        if p.is_dir() {
-                                                            let _ = state.0.vault.open(p).await;
-                                                        }
-                                                    }
+                                            // Info campaña
+                                            div { class: "flex flex-col gap-1 flex-1 min-w-0",
+                                                h3 { class: "font-semibold text-amber-300 truncate",
+                                                    "{entry.name}" }
+                                                if !entry.description.is_empty() {
+                                                    p { class: "text-sm text-stone-400 truncate",
+                                                        "{entry.description}" }
                                                 }
+                                                div { class: "flex gap-4 text-xs text-stone-500 mt-1",
+                                                    span { "👥 {entry.character_count} personaje(s)" }
+                                                    span { "📅 {entry.updated_at.get(..10).unwrap_or(&entry.updated_at)}" }
+                                                }
+                                            }
 
-                                                nav.push("/lore");
-                                            });
+                                            // Acciones
+                                            div { class: "flex gap-2 flex-shrink-0 items-center",
+                                                button {
+                                                    class: "px-4 py-2 text-sm rounded-lg bg-amber-700 hover:bg-amber-600 text-white font-semibold shadow transition-colors",
+                                                    onclick: move |_| {
+                                                        let state = state_load.clone();
+                                                        let nav = nav_load.clone();
+                                                        let fname = filename.clone();
+                                                        let mut err = error_msg;
+                                                        spawn(async move {
+                                                            match state.0.persistence.load_campaign(&fname).await {
+                                                                Ok(campaign) => {
+                                                                    // Reabrir vault si existe
+                                                                    if let Some(vp) = campaign.vault_path {
+                                                                        let p = PathBuf::from(&vp);
+                                                                        if p.is_dir() {
+                                                                            let _ = state.0.vault.open(p).await;
+                                                                        }
+                                                                    }
+                                                                    nav.push("/lore");
+                                                                }
+                                                                Err(e) => err.set(e.to_string()),
+                                                            }
+                                                        });
+                                                    },
+                                                    "Cargar"
+                                                }
+                                                button {
+                                                    class: "px-3 py-2 text-sm rounded-lg border border-red-800 text-red-400 hover:bg-red-950 hover:border-red-600 transition-colors",
+                                                    onclick: move |_| confirm_delete.set(Some(filename_del.clone())),
+                                                    "🗑 Borrar"
+                                                }
+                                            }
                                         }
-                                    },
-                                    "Continuar campaña"
+                                    )
                                 }
                             }
                         }
                     ),
+                }
+
+                if !error_msg.read().is_empty() {
+                    span { class: "text-red-400 text-sm", "{error_msg.read()}" }
+                }
+            }
+
+            // ── Modal confirmación eliminar ────────────────────────────────
+            if let Some(fname) = confirm_delete.read().clone() {
+                {
+                    let state_del = state.clone();
+                    let fname_label = fname.replace(".json", "").replace("_", " ");
+                    rsx!(
+                        div {
+                            class: "fixed inset-0 bg-black/70 flex items-center justify-center z-50",
+                            div {
+                                class: "bg-stone-900 border border-stone-700 rounded-2xl p-8 w-96 flex flex-col gap-6 shadow-2xl",
+                                h3 { class: "text-xl font-bold text-red-400 tracking-tight",
+                                    "⚠️ ¿Eliminar campaña?" }
+                                p { class: "text-sm text-stone-300 leading-relaxed",
+                                    "Se eliminará permanentemente "
+                                    span { class: "font-semibold text-amber-300", "\"{fname_label}\"" }
+                                    ". Esta acción no se puede deshacer y perderás todos los personajes de esa campaña."
+                                }
+                                div { class: "flex gap-3 justify-end pt-2",
+                                    button {
+                                        class: "px-5 py-2.5 text-sm border border-stone-600 rounded-lg text-stone-200 hover:bg-stone-700 transition-colors",
+                                        onclick: move |_| confirm_delete.set(None),
+                                        "Cancelar"
+                                    }
+                                    button {
+                                        class: "px-5 py-2.5 text-sm rounded-lg bg-red-700 hover:bg-red-600 font-semibold text-white shadow transition-colors",
+                                        onclick: move |_| {
+                                            let state = state_del.clone();
+                                            let f = fname.clone();
+                                            spawn(async move {
+                                                let _ = state.0.persistence.delete_campaign(&f).await;
+                                                // Recargar lista
+                                                if let Ok(list) = state.0.persistence.list_campaigns().await {
+                                                    campaigns.set(list.clone());
+                                                    status.set(if list.is_empty() { PageStatus::Empty } else { PageStatus::Ready });
+                                                }
+                                            });
+                                            confirm_delete.set(None);
+                                        },
+                                        "Eliminar"
+                                    }
+                                }
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -211,13 +199,13 @@ pub fn LoadCampainMenu() -> Element {
 }
 
 // ---------------------------------------------------------------------------
-// Estado interno de la pantalla
+// Estado interno
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq)]
-enum LoadStatus {
-    Checking,
-    Found,
-    NotFound,
+enum PageStatus {
+    Loading,
+    Ready,
+    Empty,
     Error(String),
 }

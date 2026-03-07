@@ -57,6 +57,14 @@ sealed class ClientMessage {
     @Serializable
     @SerialName("request_sync")
     object RequestSync : ClientMessage()
+
+    @Serializable
+    @SerialName("inventory_updated")
+    data class InventoryUpdated(
+        @Serializable(with = UuidSerializer::class)
+        @SerialName("character_id")
+        val characterId: Uuid
+    ) : ClientMessage()
 }
 
 /* ---------- SERVER MESSAGES ---------- */
@@ -130,6 +138,14 @@ sealed class ServerMessage {
     @SerialName("announcement")
     data class Announcement(
         val text: String
+    ) : ServerMessage()
+
+    @Serializable
+    @SerialName("inventory_changed")
+    data class InventoryChanged(
+        @Serializable(with = UuidSerializer::class)
+        @SerialName("character_id")
+        val characterId: Uuid
     ) : ServerMessage()
 }
 

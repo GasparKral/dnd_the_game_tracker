@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use shared::api_types::character_draft::{
@@ -18,6 +18,7 @@ pub fn api_router() -> Router<SharedState> {
         .route("/catalog/races", get(get_races_catalog))
         .route("/catalog/classes", get(get_classes_catalog))
         .route("/catalog/backgrounds", get(get_backgrounds_catalog))
+        .route("/catalog/feats", get(get_feats_catalog))
         // --- Creación de personaje (draft) ---
         .route("/character/draft", post(create_draft))
         .route("/character/draft/{id}", get(get_draft))
@@ -29,8 +30,17 @@ pub fn api_router() -> Router<SharedState> {
         .route("/characters/{id}/inventory", get(get_inventory).post(add_item))
         .route("/characters/{id}/inventory/{item_id}", put(update_item).delete(delete_item))
         .route("/characters/{id}/currency", put(update_currency))
+        // --- Hechizos ---
+        .route("/characters/{id}/spells", get(get_spells).post(add_known_spell))
+        .route("/characters/{id}/spells/{spell_id}", delete(remove_known_spell))
+        .route("/characters/{id}/spells/{spell_id}/toggle_prepared", post(toggle_prepared_spell))
+        .route("/characters/{id}/spell_slots", put(update_spell_slots))
+        // --- Items del vault (dnd_type: item) ---
+        .route("/vault/items", get(get_vault_items))
         // --- Campaña ---
         .route("/campaign", get(get_campaign).post(create_campaign))
+        .route("/campaigns", get(list_campaigns))
+        .route("/campaigns/{filename}", get(load_campaign_by_file).delete(delete_campaign))
         // --- Combate ---
         .route("/combat", get(get_combat_state))
         // --- Lore ---
@@ -56,6 +66,11 @@ async fn get_classes_catalog(State(state): State<SharedState>) -> impl IntoRespo
 
 async fn get_backgrounds_catalog(State(state): State<SharedState>) -> impl IntoResponse {
     let catalog = state.0.registry.backgrounds_catalog().await;
+    (StatusCode::OK, Json(catalog))
+}
+
+async fn get_feats_catalog(State(state): State<SharedState>) -> impl IntoResponse {
+    let catalog = state.0.registry.feats_catalog().await;
     (StatusCode::OK, Json(catalog))
 }
 
@@ -372,6 +387,7 @@ async fn get_character(
 // Inventario
 // ===========================================================================
 
+use crate::backend::models::messages::ServerMessage;
 use shared::api_types::inventory::{AddItemRequest, InventoryItem, InventoryResponse, UpdateCurrencyRequest, UpdateItemRequest};
 
 async fn get_inventory(
@@ -395,7 +411,10 @@ async fn add_item(
     let item = InventoryItem::new(req.name, req.category, req.description, req.quantity);
     let item = InventoryItem { weight: req.weight, notes: req.notes, ..item };
     match state.0.persistence.add_item(id, item).await {
-        Ok(i) => (StatusCode::CREATED, Json(i)).into_response(),
+        Ok(i) => {
+            state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id: id });
+            (StatusCode::CREATED, Json(i)).into_response()
+        }
         Err(e) => inventory_error(e),
     }
 }
@@ -406,7 +425,10 @@ async fn update_item(
     Json(req): Json<UpdateItemRequest>,
 ) -> impl IntoResponse {
     match state.0.persistence.update_item(character_id, item_id, req).await {
-        Ok(i) => (StatusCode::OK, Json(i)).into_response(),
+        Ok(i) => {
+            state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id });
+            (StatusCode::OK, Json(i)).into_response()
+        }
         Err(e) => inventory_error(e),
     }
 }
@@ -416,7 +438,10 @@ async fn delete_item(
     Path((character_id, item_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
     match state.0.persistence.delete_item(character_id, item_id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id });
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => inventory_error(e),
     }
 }
@@ -427,8 +452,105 @@ async fn update_currency(
     Json(req): Json<UpdateCurrencyRequest>,
 ) -> impl IntoResponse {
     match state.0.persistence.update_currency(id, req).await {
-        Ok(c) => (StatusCode::OK, Json(c)).into_response(),
+        Ok(c) => {
+            state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id: id });
+            (StatusCode::OK, Json(c)).into_response()
+        }
         Err(e) => inventory_error(e),
+    }
+}
+
+// ===========================================================================
+// Hechizos
+// ===========================================================================
+
+use shared::api_types::spells::{AddSpellRequest, SpellsResponse, UpdateSpellSlotsRequest};
+
+async fn get_spells(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    match state.0.persistence.get_spells(id).await {
+        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn add_known_spell(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddSpellRequest>,
+) -> impl IntoResponse {
+    match state.0.persistence.add_known_spell(id, req).await {
+        Ok(s) => {
+            state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id: id });
+            (StatusCode::CREATED, Json(s)).into_response()
+        }
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn remove_known_spell(
+    State(state): State<SharedState>,
+    Path((character_id, spell_id)): Path<(Uuid, Uuid)>,
+) -> impl IntoResponse {
+    match state.0.persistence.remove_known_spell(character_id, spell_id).await {
+        Ok(()) => {
+            state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id });
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn toggle_prepared_spell(
+    State(state): State<SharedState>,
+    Path((character_id, spell_id)): Path<(Uuid, Uuid)>,
+) -> impl IntoResponse {
+    match state.0.persistence.toggle_prepared_spell(character_id, spell_id).await {
+        Ok(prepared) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "prepared": prepared })),
+        ).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn update_spell_slots(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateSpellSlotsRequest>,
+) -> impl IntoResponse {
+    match state.0.persistence.update_spell_slots(id, req).await {
+        Ok(slots) => (StatusCode::OK, Json(slots)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+/// GET /api/vault/items — lista los objetos del vault con dnd_type: item
+async fn get_vault_items(State(state): State<SharedState>) -> impl IntoResponse {
+    if !state.0.vault.is_configured().await {
+        return (StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Vault no configurado" }))).into_response();
+    }
+    match state.0.vault.entries_by_kind(crate::vault::frontmatter::DndEntryType::Item).await {
+        Ok(entries) => {
+            let items: Vec<_> = entries.iter().map(|e| serde_json::json!({
+                "path": e.relative_path,
+                "name": e.display_name(),
+                "description": e.frontmatter.extra.get("description")
+                    .and_then(|v| v.as_str()).unwrap_or(""),
+                "category": e.frontmatter.extra.get("category")
+                    .and_then(|v| v.as_str()).unwrap_or("misc"),
+                "weight": e.frontmatter.extra.get("weight").and_then(|v| v.as_f64()),
+                "damage": e.frontmatter.extra.get("damage").and_then(|v| v.as_str()),
+                "notes": e.frontmatter.extra.get("notes").and_then(|v| v.as_str()).unwrap_or(""),
+                "tags": e.frontmatter.tags,
+            })).collect();
+            (StatusCode::OK, Json(serde_json::json!({ "items": items }))).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     }
 }
 
@@ -478,6 +600,56 @@ async fn create_campaign(
             Json(serde_json::json!({ "error": e.to_string() })),
         )
             .into_response(),
+    }
+}
+
+/// GET /api/campaigns — lista todas las campañas guardadas
+async fn list_campaigns(State(state): State<SharedState>) -> impl IntoResponse {
+    match state.0.persistence.list_campaigns().await {
+        Ok(list) => (StatusCode::OK, Json(list)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ).into_response(),
+    }
+}
+
+/// GET /api/campaigns/:filename — activa una campaña concreta
+async fn load_campaign_by_file(
+    State(state): State<SharedState>,
+    Path(filename): Path<String>,
+) -> impl IntoResponse {
+    match state.0.persistence.load_campaign(&filename).await {
+        Ok(c) => (
+            StatusCode::OK,
+            Json(shared::persistence::CampaignSummary::from(&c)),
+        ).into_response(),
+        Err(crate::persistence::PersistenceError::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Campaña no encontrada" })),
+        ).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ).into_response(),
+    }
+}
+
+/// DELETE /api/campaigns/:filename — elimina una campaña del disco
+async fn delete_campaign(
+    State(state): State<SharedState>,
+    Path(filename): Path<String>,
+) -> impl IntoResponse {
+    match state.0.persistence.delete_campaign(&filename).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(crate::persistence::PersistenceError::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Campaña no encontrada" })),
+        ).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ).into_response(),
     }
 }
 

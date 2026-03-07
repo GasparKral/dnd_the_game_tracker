@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::api_types::character_draft::AttributesDto;
 use crate::api_types::inventory::{Currency, InventoryItem};
+use crate::api_types::spells::{Spell, SpellSlotLevel};
 
 // ---------------------------------------------------------------------------
 // Personaje guardado — draft finalizado listo para jugar
@@ -41,6 +42,15 @@ pub struct SavedCharacter {
     /// Monedas del personaje
     #[serde(default)]
     pub currency: Currency,
+    /// Espacios de hechizo por nivel (1–9)
+    #[serde(default)]
+    pub spell_slots: Vec<SpellSlotLevel>,
+    /// Hechizos conocidos (todos los que el personaje ha aprendido)
+    #[serde(default)]
+    pub known_spells: Vec<Spell>,
+    /// Hechizos preparados (subconjunto de conocidos, activos para la jornada)
+    #[serde(default)]
+    pub prepared_spells: Vec<Spell>,
     /// Timestamp ISO 8601 de la última modificación
     pub updated_at: String,
 }
@@ -82,6 +92,9 @@ impl SavedCharacter {
             notes: String::new(),
             inventory: Vec::new(),
             currency: Currency::default(),
+            spell_slots: Vec::new(),
+            known_spells: Vec::new(),
+            prepared_spells: Vec::new(),
             updated_at: now,
         }
     }

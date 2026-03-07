@@ -2,6 +2,9 @@ package io.github.gasparkral.dnd.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.gasparkral.dnd.infra.ClientMessage
+import io.github.gasparkral.dnd.infra.ServerMessage
+import io.github.gasparkral.dnd.infra.SocketManager
 import io.github.gasparkral.dnd.infra.repository.DraftRepository
 import io.github.gasparkral.dnd.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 data class InventoryUiState(
     val isLoading: Boolean = true,
@@ -16,16 +21,15 @@ data class InventoryUiState(
     val items: List<InventoryItem> = emptyList(),
     val currency: Currency = Currency(),
     val totalWeight: Float = 0f,
-    // Estado del diálogo de añadir objeto
     val showAddDialog: Boolean = false,
     val isSaving: Boolean = false,
-    // Estado del diálogo de monedas
     val showCurrencyDialog: Boolean = false,
 )
 
 class InventoryViewModel(
     private val characterId: String,
     private val repo: DraftRepository,
+    private val socketManager: SocketManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(InventoryUiState())
@@ -33,6 +37,32 @@ class InventoryViewModel(
 
     init {
         loadInventory()
+        observeServerChanges()
+    }
+
+    // Notificar al DM via WS que el jugador cambio algo — best effort
+    @OptIn(ExperimentalUuidApi::class)
+    private fun notifyDm() {
+        viewModelScope.launch {
+            try {
+                socketManager.send(ClientMessage.InventoryUpdated(characterId = Uuid.parse(characterId)))
+            } catch (_: Exception) { /* WS puede no estar activo, no es critico */
+            }
+        }
+    }
+
+    // Escuchar InventoryChanged del servidor (cambios del DM) y recargar
+    @OptIn(ExperimentalUuidApi::class)
+    private fun observeServerChanges() {
+        viewModelScope.launch {
+            socketManager.messages.collect { msg ->
+                if (msg is ServerMessage.InventoryChanged) {
+                    if (msg.characterId.toString() == characterId) {
+                        loadInventory()
+                    }
+                }
+            }
+        }
     }
 
     fun loadInventory() {
@@ -54,8 +84,7 @@ class InventoryViewModel(
         }
     }
 
-    // ── Añadir objeto ────────────────────────────────────────────────────────
-
+    // Añadir objeto
     fun openAddDialog() = _state.update { it.copy(showAddDialog = true) }
     fun closeAddDialog() = _state.update { it.copy(showAddDialog = false) }
 
@@ -83,14 +112,14 @@ class InventoryViewModel(
                             totalWeight = it.totalWeight + (item.weight ?: 0f) * item.quantity,
                         )
                     }
+                    notifyDm()
                 },
                 onErr = { _state.update { it.copy(isSaving = false) } }
             )
         }
     }
 
-    // ── Equipar / desequipar ─────────────────────────────────────────────────
-
+    // Equipar / desequipar
     fun toggleEquipped(item: InventoryItem) {
         viewModelScope.launch {
             repo.updateItem(characterId, item.id, UpdateItemRequest(equipped = !item.equipped)).fold(
@@ -98,20 +127,19 @@ class InventoryViewModel(
                     _state.update { s ->
                         s.copy(items = s.items.map { if (it.id == updated.id) updated else it })
                     }
+                    notifyDm()
                 },
-                onErr = { /* silencioso — la UI no cambia */ }
+                onErr = {}
             )
         }
     }
 
-    // ── Cambiar cantidad ─────────────────────────────────────────────────────
-
+    // Cambiar cantidad
     fun updateQuantity(item: InventoryItem, newQuantity: Int) {
         if (newQuantity < 0) return
         viewModelScope.launch {
             if (newQuantity == 0) {
-                deleteItem(item)
-                return@launch
+                deleteItem(item); return@launch
             }
             repo.updateItem(characterId, item.id, UpdateItemRequest(quantity = newQuantity)).fold(
                 onOk = { updated ->
@@ -124,14 +152,14 @@ class InventoryViewModel(
                                 .toFloat(),
                         )
                     }
+                    notifyDm()
                 },
-                onErr = { }
+                onErr = {}
             )
         }
     }
 
-    // ── Eliminar ─────────────────────────────────────────────────────────────
-
+    // Eliminar
     fun deleteItem(item: InventoryItem) {
         viewModelScope.launch {
             repo.deleteItem(characterId, item.id).fold(
@@ -142,14 +170,14 @@ class InventoryViewModel(
                             totalWeight = s.totalWeight - (item.weight ?: 0f) * item.quantity,
                         )
                     }
+                    notifyDm()
                 },
-                onErr = { }
+                onErr = {}
             )
         }
     }
 
-    // ── Monedas ──────────────────────────────────────────────────────────────
-
+    // Monedas
     fun openCurrencyDialog() = _state.update { it.copy(showCurrencyDialog = true) }
     fun closeCurrencyDialog() = _state.update { it.copy(showCurrencyDialog = false) }
 
@@ -162,6 +190,7 @@ class InventoryViewModel(
             ).fold(
                 onOk = { c ->
                     _state.update { it.copy(isSaving = false, showCurrencyDialog = false, currency = c) }
+                    notifyDm()
                 },
                 onErr = { _state.update { it.copy(isSaving = false) } }
             )

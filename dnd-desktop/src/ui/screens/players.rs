@@ -1,8 +1,10 @@
 use crate::states::SharedState;
 use chrono;
 use dioxus::prelude::*;
-use shared::api_types::inventory::{Currency, InventoryItem};
+use shared::api_types::inventory::{Currency, InventoryItem, ItemCategory, UpdateCurrencyRequest};
+use shared::api_types::spells::{Spell, SpellSchool, SpellSlotLevel};
 use shared::persistence::SavedCharacter;
+use std::time::Duration;
 use uuid::Uuid;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -544,19 +546,394 @@ fn CharacterDetail(
                 }
             }
 
-            // ── CARD 2: Inventario ─────────────────────────────────────────
-            div {
-                style: "background:#1c1917; border:1px solid #292524; border-radius:20px; overflow:hidden;",
-                div { style: "height:3px; background:linear-gradient(90deg,#1c1917 0%,#44403c 50%,#1c1917 100%);" }
-                div { style: "padding:20px; display:flex; flex-direction:column; gap:16px;",
-                    SectionDivider { label: "INVENTARIO" }
-                    CurrencyRow { currency: character.currency.clone() }
-                    if character.inventory.is_empty() {
+            // ── CARD 2: Inventario + Hechizos ────────────────────────────
+            InventoryCard {
+                character_id: character.id,
+                initial_items: character.inventory.clone(),
+                initial_currency: character.currency.clone(),
+                initial_spell_slots: character.spell_slots.clone(),
+                initial_known_spells: character.known_spells.clone(),
+                initial_prepared_spells: character.prepared_spells.clone(),
+            }
+            div { style: "height:24px;" }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CARD INVENTARIO + HECHIZOS — tabs, filtro categóría, vault items, hechizos
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Clone, PartialEq)]
+enum InventoryTab {
+    Items,
+    Spells,
+}
+
+#[derive(Clone, PartialEq)]
+enum CategoryFilter {
+    All,
+    Weapon,
+    Armour,
+    Consumable,
+    Tool,
+    Treasure,
+    Misc,
+}
+
+impl CategoryFilter {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::All => "Todos",
+            Self::Weapon => "Armas",
+            Self::Armour => "Armaduras",
+            Self::Consumable => "Consumibles",
+            Self::Tool => "Herramientas",
+            Self::Treasure => "Tesoros",
+            Self::Misc => "Misc",
+        }
+    }
+    fn matches(&self, cat: &ItemCategory) -> bool {
+        match self {
+            Self::All => true,
+            Self::Weapon => *cat == ItemCategory::Weapon,
+            Self::Armour => *cat == ItemCategory::Armour,
+            Self::Consumable => *cat == ItemCategory::Consumable,
+            Self::Tool => *cat == ItemCategory::Tool,
+            Self::Treasure => *cat == ItemCategory::Treasure,
+            Self::Misc => *cat == ItemCategory::Misc,
+        }
+    }
+}
+
+#[component]
+fn InventoryCard(
+    character_id: Uuid,
+    initial_items: Vec<InventoryItem>,
+    initial_currency: Currency,
+    initial_spell_slots: Vec<SpellSlotLevel>,
+    initial_known_spells: Vec<Spell>,
+    initial_prepared_spells: Vec<Spell>,
+) -> Element {
+    let state = consume_context::<SharedState>().0;
+
+    // ── Estado vivo sincronizado por polling ────────────────────────────────────
+    let mut live_items: Signal<Vec<InventoryItem>> = use_signal(|| initial_items.clone());
+    let mut live_currency: Signal<Currency> = use_signal(|| initial_currency.clone());
+    let mut live_slots: Signal<Vec<SpellSlotLevel>> = use_signal(|| initial_spell_slots.clone());
+    let mut live_known: Signal<Vec<Spell>> = use_signal(|| initial_known_spells.clone());
+    let mut live_prepared: Signal<Vec<Spell>> = use_signal(|| initial_prepared_spells.clone());
+
+    // Resetear al cambiar de personaje
+    let ri = initial_items.clone();
+    let rc = initial_currency.clone();
+    let rs = initial_spell_slots.clone();
+    let rk = initial_known_spells.clone();
+    let rp = initial_prepared_spells.clone();
+    use_effect(move || {
+        live_items.set(ri.clone());
+        live_currency.set(rc.clone());
+        live_slots.set(rs.clone());
+        live_known.set(rk.clone());
+        live_prepared.set(rp.clone());
+    });
+
+    // Polling 4s
+    let sp = state.clone();
+    use_future(move || {
+        let s = sp.clone();
+        async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                if let Ok((items, currency)) = s.persistence.get_inventory(character_id).await {
+                    live_items.set(items);
+                    live_currency.set(currency);
+                }
+                if let Ok(sr) = s.persistence.get_spells(character_id).await {
+                    live_slots.set(sr.spell_slots);
+                    live_known.set(sr.known_spells);
+                    live_prepared.set(sr.prepared_spells);
+                }
+            }
+        }
+    });
+
+    // ── UI state ───────────────────────────────────────────────────────────────
+    let mut active_tab: Signal<InventoryTab> = use_signal(|| InventoryTab::Items);
+    let mut cat_filter: Signal<CategoryFilter> = use_signal(|| CategoryFilter::All);
+    let mut editing_currency: Signal<bool> = use_signal(|| false);
+    let mut show_vault_items: Signal<bool> = use_signal(|| false);
+    // vault items — se cargan al abrir el panel
+    let mut vault_items: Signal<Vec<serde_json::Value>> = use_signal(|| vec![]);
+    // hechizos
+    let mut show_add_spell: Signal<bool> = use_signal(|| false);
+    let mut spell_name = use_signal(|| String::new());
+    let mut spell_level: Signal<u8> = use_signal(|| 0);
+    let mut spell_school = use_signal(|| String::from("unknown"));
+    let mut spell_cast = use_signal(|| String::new());
+    let mut spell_range = use_signal(|| String::new());
+    let mut spell_dur = use_signal(|| String::new());
+    let mut spell_desc = use_signal(|| String::new());
+    let mut spell_dmg = use_signal(|| String::new());
+    let mut spell_conc: Signal<bool> = use_signal(|| false);
+    let mut spell_ritual: Signal<bool> = use_signal(|| false);
+    let mut spell_prepared: Signal<bool> = use_signal(|| false);
+
+    // Editor monedas
+    let lc0 = initial_currency.clone();
+    let mut e_cp = use_signal(|| lc0.copper);
+    let mut e_sp = use_signal(|| lc0.silver);
+    let mut e_ep = use_signal(|| lc0.electrum);
+    let mut e_gp = use_signal(|| lc0.gold);
+    let mut e_pp = use_signal(|| lc0.platinum);
+    let lc = live_currency.read().clone();
+    use_effect(move || {
+        e_cp.set(lc.copper);
+        e_sp.set(lc.silver);
+        e_ep.set(lc.electrum);
+        e_gp.set(lc.gold);
+        e_pp.set(lc.platinum);
+        editing_currency.set(false);
+    });
+
+    let ss = state.clone();
+    let save_currency = move |_| {
+        let req = UpdateCurrencyRequest {
+            copper: Some(*e_cp.read()),
+            silver: Some(*e_sp.read()),
+            electrum: Some(*e_ep.read()),
+            gold: Some(*e_gp.read()),
+            platinum: Some(*e_pp.read()),
+        };
+        let s = ss.clone();
+        spawn(async move {
+            if let Ok(updated) = s.persistence.update_currency(character_id, req).await {
+                live_currency.set(updated);
+            }
+        });
+        editing_currency.set(false);
+    };
+    let cancel_currency = move |_| {
+        let cur = live_currency.read().clone();
+        e_cp.set(cur.copper);
+        e_sp.set(cur.silver);
+        e_ep.set(cur.electrum);
+        e_gp.set(cur.gold);
+        e_pp.set(cur.platinum);
+        editing_currency.set(false);
+    };
+
+    // Pre-clones de state para los closures dentro del rsx! que lo necesitan
+    // (state es Arc, no Copy — cada closure move necesita su propia copia)
+    let state_vault_btn   = state.clone(); // botón "Añadir desde vault"
+    let state_vault_modal = state.clone(); // modal items del vault (sv2)
+    let state_spells      = state.clone(); // closures on_toggle / on_remove
+
+    // Guardar hechizo nuevo
+    let sa = state.clone();
+    let save_spell = move |_| {
+        use shared::api_types::spells::{AddSpellRequest, SpellComponents};
+        let school_str = spell_school.read().clone();
+        let school = match school_str.as_str() {
+            "abjuration" => SpellSchool::Abjuration,
+            "conjuration" => SpellSchool::Conjuration,
+            "divination" => SpellSchool::Divination,
+            "enchantment" => SpellSchool::Enchantment,
+            "evocation" => SpellSchool::Evocation,
+            "illusion" => SpellSchool::Illusion,
+            "necromancy" => SpellSchool::Necromancy,
+            "transmutation" => SpellSchool::Transmutation,
+            _ => SpellSchool::Unknown,
+        };
+        let req = AddSpellRequest {
+            name: spell_name.read().clone(),
+            level: *spell_level.read(),
+            school,
+            casting_time: spell_cast.read().clone(),
+            range: spell_range.read().clone(),
+            duration: spell_dur.read().clone(),
+            components: SpellComponents::default(),
+            description: spell_desc.read().clone(),
+            damage: if spell_dmg.read().is_empty() {
+                None
+            } else {
+                Some(spell_dmg.read().clone())
+            },
+            saving_throw: None,
+            notes: String::new(),
+            concentration: *spell_conc.read(),
+            ritual: *spell_ritual.read(),
+            prepared: *spell_prepared.read(),
+        };
+        let is_prep = *spell_prepared.read();
+        let s = sa.clone();
+        spawn(async move {
+            if let Ok(spell) = s.persistence.add_known_spell(character_id, req).await {
+                live_known.write().push(spell.clone());
+                if is_prep {
+                    live_prepared.write().push(spell);
+                }
+            }
+        });
+        show_add_spell.set(false);
+        spell_name.set(String::new());
+        spell_level.set(0);
+    };
+
+    // Snapshot para render
+    let items = live_items.read().clone();
+    let currency = live_currency.read().clone();
+    let slots = live_slots.read().clone();
+    let known = live_known.read().clone();
+    let prepared = live_prepared.read().clone();
+    let cf = cat_filter.read().clone();
+    let filtered: Vec<_> = items
+        .iter()
+        .filter(|i| cf.matches(&i.category))
+        .cloned()
+        .collect();
+    let total_w: f32 = filtered
+        .iter()
+        .map(|i| i.weight.unwrap_or(0.0) * i.quantity as f32)
+        .sum();
+    let is_ed_cur = *editing_currency.read();
+    let tab = active_tab.read().clone();
+
+    rsx! {
+        div {
+            style: "background:#1c1917; border:1px solid #292524; border-radius:20px; overflow:hidden;",
+            div { style: "height:3px; background:linear-gradient(90deg,#1c1917 0%,#44403c 50%,#1c1917 100%);" }
+            div { style: "padding:20px; display:flex; flex-direction:column; gap:14px;",
+
+                // ── Tabs: Inventario | Hechizos ────────────────────────────────────────
+                div { style: "display:flex; gap:4px; border-bottom:1px solid #292524; padding-bottom:10px;",
+                    for (lbl, tval) in [("Inventario", InventoryTab::Items), ("Hechizos", InventoryTab::Spells)] {
+                        {
+                            let is_active = tab == tval;
+                            let tval2 = tval.clone();
+                            let bg  = if is_active { "#292524" } else { "transparent" };
+                            let col = if is_active { "#fef3c7" } else { "#78716c" };
+                            let brd = if is_active { "#78350f" } else { "transparent" };
+                            rsx! {
+                                button {
+                                    style: "padding:5px 16px; font-size:0.72rem; border-radius:8px;
+                                            background:{bg}; color:{col}; border:1px solid {brd}; cursor:pointer;",
+                                    onclick: move |_| active_tab.set(tval2.clone()),
+                                    "{lbl}"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ────────────────────────────────────────────────────────────────────────
+                if tab == InventoryTab::Items {
+
+                    // ── Monedas ──────────────────────────────────────────────────
+                    div { style: "display:flex; align-items:center; justify-content:space-between; gap:8px;",
+                        CurrencyRow { currency: currency.clone() }
+                        if !is_ed_cur {
+                            button {
+                                style: "flex-shrink:0; padding:4px 12px; font-size:0.65rem; border-radius:8px;
+                                        cursor:pointer; background:#1a1208; color:#f59e0b; border:1px solid #78350f;",
+                                onclick: move |_| {
+                                    let cur = live_currency.read().clone();
+                                    e_cp.set(cur.copper); e_sp.set(cur.silver);
+                                    e_ep.set(cur.electrum); e_gp.set(cur.gold); e_pp.set(cur.platinum);
+                                    editing_currency.set(true);
+                                }, "✏️ Monedas"
+                            }
+                        }
+                    }
+
+                    if is_ed_cur {
+                        div {
+                            style: "background:#111110; border:1px solid #b45309; border-radius:14px;
+                                    padding:14px 16px; display:flex; flex-direction:column; gap:10px;",
+                            div { style: "display:grid; grid-template-columns:repeat(5,1fr); gap:8px;",
+                                CurrencyInput { label: "PC", accent: "#f97316", value: e_cp }
+                                CurrencyInput { label: "PP", accent: "#d6d3d1", value: e_sp }
+                                CurrencyInput { label: "PE", accent: "#22d3ee", value: e_ep }
+                                CurrencyInput { label: "PO", accent: "#fbbf24", value: e_gp }
+                                CurrencyInput { label: "Pt", accent: "#c084fc", value: e_pp }
+                            }
+                            div { style: "display:flex; justify-content:flex-end; gap:8px;",
+                                button {
+                                    style: "padding:5px 14px; font-size:0.7rem; border-radius:8px; cursor:pointer;
+                                            background:#1c1917; color:#78716c; border:1px solid #292524;",
+                                    onclick: cancel_currency, "Cancelar"
+                                }
+                                button {
+                                    style: "padding:5px 14px; font-size:0.7rem; font-weight:600; border-radius:8px;
+                                            cursor:pointer; background:#92400e; color:#fef3c7; border:1px solid #b45309;",
+                                    onclick: save_currency, "💾 Guardar"
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Filtros de categoría ─────────────────────────────────────
+                    div { style: "display:flex; gap:4px; flex-wrap:wrap;",
+                        for f in [
+                            CategoryFilter::All, CategoryFilter::Weapon, CategoryFilter::Armour,
+                            CategoryFilter::Consumable, CategoryFilter::Tool,
+                            CategoryFilter::Treasure, CategoryFilter::Misc,
+                        ] {
+                            {
+                                let is_active = cf == f;
+                                let f2 = f.clone();
+                                let bg  = if is_active { "#78350f" } else { "#111110" };
+                                let col = if is_active { "#fef3c7" } else { "#78716c" };
+                                let brd = if is_active { "#b45309" } else { "#292524" };
+                                rsx! {
+                                    button {
+                                        style: "padding:3px 10px; font-size:0.62rem; border-radius:6px;
+                                                background:{bg}; color:{col}; border:1px solid {brd}; cursor:pointer;",
+                                        onclick: move |_| cat_filter.set(f2.clone()),
+                                        "{f.label()}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Botón añadir desde vault ────────────────────────────────
+                    div { style: "display:flex; justify-content:flex-end;",
+                        button {
+                            style: "padding:4px 12px; font-size:0.65rem; border-radius:8px; cursor:pointer;
+                                    background:#071a0e; color:#34d399; border:1px solid #065f46;",
+                            onclick: move |_| {
+                                let sv = state_vault_btn.clone();
+                                show_vault_items.set(true);
+                                spawn(async move {
+                                    // Llamar al vault manager para obtener items
+                                    if let Ok(entries) = sv.vault.entries_by_kind(
+                                        crate::vault::frontmatter::DndEntryType::Item
+                                    ).await {
+                                        vault_items.set(entries.iter().map(|e| serde_json::json!({
+                                            "name": e.display_name(),
+                                            "category": e.frontmatter.extra.get("category")
+                                                .and_then(|v| v.as_str()).unwrap_or("misc"),
+                                            "description": e.frontmatter.extra.get("description")
+                                                .and_then(|v| v.as_str()).unwrap_or(""),
+                                            "weight": e.frontmatter.extra.get("weight"),
+                                            "notes": e.frontmatter.extra.get("notes")
+                                                .and_then(|v| v.as_str()).unwrap_or(""),
+                                        })).collect());
+                                    }
+                                });
+                            },
+                            "📜 Añadir desde vault"
+                        }
+                    }
+
+                    // ── Tabla de items filtrados ──────────────────────────────
+                    if filtered.is_empty() {
                         div {
                             style: "display:flex; align-items:center; justify-content:center;
                                     height:60px; font-size:0.78rem; color:#44403c;
                                     border:1px dashed #292524; border-radius:12px;",
-                            "El inventario está vacío."
+                            "Sin objetos en esta categoría."
                         }
                     } else {
                         div {
@@ -565,27 +942,315 @@ fn CharacterDetail(
                                 style: "display:grid; grid-template-columns:5fr 3fr 2fr 2fr;
                                         padding:7px 16px; background:#111110; border-bottom:1px solid #1c1917;
                                         font-size:0.62rem; color:#57534e; text-transform:uppercase; letter-spacing:0.09em;",
-                                div { "Objeto" }
-                                div { "Categoría" }
+                                div { "Objeto" } div { "Tipo" }
                                 div { style: "text-align:center;", "Cant." }
                                 div { style: "text-align:right;", "Peso" }
                             }
-                            for item in character.inventory.iter() {
-                                ItemRow { item: item.clone() }
+                            for item in filtered.iter() { ItemRow { item: item.clone() } }
+                        }
+                        p { style: "font-size:0.68rem; color:#44403c; text-align:right; margin:0;",
+                            "{filtered.len()} objeto(s) · {total_w:.1} lb." }
+                    }
+
+                } else {
+                    // ───────────────────────────────────────────────────────────────────────
+                    // TAB HECHIZOS
+                    // ───────────────────────────────────────────────────────────────────────
+
+                    // ── Espacios de hechizo ───────────────────────────────────
+                    SpellSlotsPanel {
+                        character_id: character_id,
+                        slots: slots.clone(),
+                        on_update: move |new_slots| live_slots.set(new_slots),
+                    }
+
+                    // ── Hechizos preparados ────────────────────────────────
+                    SectionDivider { label: "PREPARADOS" }
+                    if prepared.is_empty() {
+                        p { style: "font-size:0.75rem; color:#44403c; text-align:center; margin:0;",
+                            "Ningún hechizo preparado." }
+                    } else {
+                        div { style: "display:flex; flex-direction:column; gap:4px;",
+                            for spell in prepared.iter() {
+                                SpellRowDm {
+                                    spell: spell.clone(),
+                                    is_prepared: true,
+                                    character_id: character_id,
+                                    on_toggle: move |_id| {},
+                                    on_remove: move |_id| {},
+                                }
                             }
                         }
-                        {
-                            let total: f32 = character.inventory.iter()
-                                .map(|i| i.weight.unwrap_or(0.0) * i.quantity as f32).sum();
-                            rsx! {
-                                p { style: "font-size:0.68rem; color:#44403c; text-align:right; margin:0;",
-                                    "Peso total: {total:.1} lb." }
+                    }
+
+                    // ── Hechizos conocidos ─────────────────────────────────
+                    div { style: "display:flex; align-items:center; justify-content:space-between;",
+                        SectionDivider { label: "CONOCIDOS" }
+                        button {
+                            style: "margin-left:12px; flex-shrink:0; padding:4px 12px; font-size:0.65rem;
+                                    border-radius:8px; cursor:pointer; background:#071a0e; color:#34d399;
+                                    border:1px solid #065f46;",
+                            onclick: move |_| show_add_spell.set(true),
+                            "+ Hechizo"
+                        }
+                    }
+
+                    if known.is_empty() {
+                        p { style: "font-size:0.75rem; color:#44403c; text-align:center; margin:0;",
+                            "Sin hechizos conocidos." }
+                    } else {
+                        div { style: "display:flex; flex-direction:column; gap:4px;",
+                            for spell in known.iter() {
+                                {
+                                    let is_prep = prepared.iter().any(|p| p.id == spell.id);
+                                    let sid = spell.id;
+                                    let sc  = state_spells.clone();
+                                    let sc2 = state_spells.clone();
+                                    rsx! {
+                                        SpellRowDm {
+                                            spell: spell.clone(),
+                                            is_prepared: is_prep,
+                                            character_id: character_id,
+                                            on_toggle: move |_| {
+                                            let s = sc.clone();
+                                            spawn(async move {
+                                            if let Ok(_) = s.persistence.toggle_prepared_spell(character_id, sid).await {
+                                            if let Ok(sr) = s.persistence.get_spells(character_id).await {
+                                            live_prepared.set(sr.prepared_spells);
+                                            }
+                                            }
+                                            });
+                                            },
+                                            on_remove: move |_| {
+                                                let s = sc2.clone();
+                                                spawn(async move {
+                                                    let _ = s.persistence.remove_known_spell(character_id, sid).await;
+                                                    if let Ok(sr) = s.persistence.get_spells(character_id).await {
+                                                        live_known.set(sr.known_spells);
+                                                        live_prepared.set(sr.prepared_spells);
+                                                    }
+                                                });
+                                            },
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
-            div { style: "height:24px;" }
+        }
+
+        // ── Modal: Añadir hechizo ────────────────────────────────────────────
+        if *show_add_spell.read() {
+            div {
+                style: "position:fixed; inset:0; background:rgba(0,0,0,0.75);
+                        display:flex; align-items:center; justify-content:center; z-index:50;",
+                div {
+                    style: "background:#1c1917; border:1px solid #44403c; border-radius:18px;
+                            padding:24px; width:480px; max-width:95vw; display:flex;
+                            flex-direction:column; gap:14px;",
+                    h3 { style: "font-size:1rem; font-weight:700; color:#fef3c7; margin:0;",
+                        "Nuevo Hechizo" }
+
+                    // Nombre + nivel
+                    div { style: "display:grid; grid-template-columns:3fr 1fr; gap:8px;",
+                        SpellInput { label: "Nombre", value: spell_name }
+                        div { style: "display:flex; flex-direction:column; gap:4px;",
+                            label { style: "font-size:0.62rem; color:#78716c;", "Nivel (0=truco)" }
+                            input {
+                                r#type: "number", min: "0", max: "9",
+                                style: "background:#111110; border:1px solid #44403c; border-radius:8px;
+                                        padding:7px 8px; color:#e7e5e4; font-size:0.85rem; outline:none;
+                                        width:100%; box-sizing:border-box;",
+                                value: "{spell_level}",
+                                oninput: move |e| {
+                                    if let Ok(v) = e.value().parse::<u8>() { spell_level.set(v.min(9)); }
+                                }
+                            }
+                        }
+                    }
+
+                    // Escuela
+                    div { style: "display:flex; flex-direction:column; gap:4px;",
+                        label { style: "font-size:0.62rem; color:#78716c;", "Escuela" }
+                        select {
+                            style: "background:#111110; border:1px solid #44403c; border-radius:8px;
+                                    padding:7px 8px; color:#e7e5e4; font-size:0.85rem; outline:none;",
+                            oninput: move |e| spell_school.set(e.value()),
+                            option { value: "abjuration",    "Abjuración" }
+                            option { value: "conjuration",   "Conjuración" }
+                            option { value: "divination",    "Adivinación" }
+                            option { value: "enchantment",   "Encantamiento" }
+                            option { value: "evocation",     "Evocación" }
+                            option { value: "illusion",      "Ilusión" }
+                            option { value: "necromancy",    "Nigromancia" }
+                            option { value: "transmutation", "Transmutación" }
+                            option { value: "unknown",       selected: true, "Desconocida" }
+                        }
+                    }
+
+                    // Tiempo / alcance / duración
+                    div { style: "display:grid; grid-template-columns:repeat(3,1fr); gap:8px;",
+                        SpellInput { label: "Tiempo lanzamiento", value: spell_cast }
+                        SpellInput { label: "Alcance",           value: spell_range }
+                        SpellInput { label: "Duración",          value: spell_dur }
+                    }
+
+                    // Daño
+                    SpellInput { label: "Daño (ej: 8d6 fuego)", value: spell_dmg }
+
+                    // Descripción
+                    div { style: "display:flex; flex-direction:column; gap:4px;",
+                        label { style: "font-size:0.62rem; color:#78716c;", "Descripción" }
+                        textarea {
+                            style: "background:#111110; border:1px solid #44403c; border-radius:8px;
+                                    padding:8px 10px; color:#e7e5e4; font-size:0.82rem; outline:none;
+                                    resize:none; min-height:72px; font-family:inherit;",
+                            value: "{spell_desc}",
+                            oninput: move |e| spell_desc.set(e.value())
+                        }
+                    }
+
+                    // Flags
+                    div { style: "display:flex; gap:16px;",
+                        CheckFlag { label: "Concentración", value: spell_conc }
+                        CheckFlag { label: "Ritual",         value: spell_ritual }
+                        CheckFlag { label: "Preparado",      value: spell_prepared }
+                    }
+
+                    // Acciones
+                    div { style: "display:flex; justify-content:flex-end; gap:8px;",
+                        button {
+                            style: "padding:7px 16px; font-size:0.72rem; border-radius:8px; cursor:pointer;
+                                    background:#1c1917; color:#78716c; border:1px solid #292524;",
+                            onclick: move |_| show_add_spell.set(false), "Cancelar"
+                        }
+                        button {
+                            style: "padding:7px 16px; font-size:0.72rem; font-weight:600; border-radius:8px;
+                                    cursor:pointer; background:#1e3a5f; color:#93c5fd; border:1px solid #1d4ed8;",
+                            onclick: save_spell, "✨ Añadir hechizo"
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Modal: Items del vault ─────────────────────────────────────────
+        if *show_vault_items.read() {
+            {
+                let vi = vault_items.read().clone();
+                let sv2 = state_vault_modal.clone();
+                rsx! {
+                    div {
+                        style: "position:fixed; inset:0; background:rgba(0,0,0,0.75);
+                                display:flex; align-items:center; justify-content:center; z-index:50;",
+                        div {
+                            style: "background:#1c1917; border:1px solid #44403c; border-radius:18px;
+                                    padding:24px; width:560px; max-width:95vw; max-height:80vh;
+                                    display:flex; flex-direction:column; gap:14px;",
+                            div { style: "display:flex; justify-content:space-between; align-items:center;",
+                                h3 { style: "font-size:1rem; font-weight:700; color:#fef3c7; margin:0;",
+                                    "📜 Items del Vault" }
+                                button {
+                                    style: "padding:4px 12px; font-size:0.7rem; border-radius:8px; cursor:pointer;
+                                            background:#1c1917; color:#78716c; border:1px solid #292524;",
+                                    onclick: move |_| show_vault_items.set(false), "Cerrar"
+                                }
+                            }
+                            if vi.is_empty() {
+                                p { style: "color:#44403c; font-size:0.8rem; text-align:center;",
+                                    "No hay items con dnd_type:item en el vault, o el vault no está configurado." }
+                            } else {
+                                div { style: "overflow-y:auto; display:flex; flex-direction:column; gap:6px;",
+                                    for vi_item in vi.iter() {
+                                        {
+                                            let name = vi_item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let desc = vi_item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let cat_str = vi_item.get("category").and_then(|v| v.as_str()).unwrap_or("misc").to_string();
+                                            let notes = vi_item.get("notes").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let name2 = name.clone();
+                                            let cat2  = cat_str.clone();
+                                            let desc2 = desc.clone();
+                                            let notes2 = notes.clone();
+                                            let s3 = sv2.clone();
+                                            rsx! {
+                                                div {
+                                                    style: "display:flex; align-items:center; justify-content:space-between;
+                                                            background:#111110; border:1px solid #292524; border-radius:10px;
+                                                            padding:10px 14px; gap:12px;",
+                                                    div { style: "flex:1; min-width:0;",
+                                                        p { style: "font-size:0.83rem; font-weight:600; color:#d6d3d1; margin:0;",
+                                                            "{name}" }
+                                                        if !desc.is_empty() {
+                                                            p { style: "font-size:0.7rem; color:#57534e; margin:2px 0 0;
+                                                                        overflow:hidden; text-overflow:ellipsis; white-space:nowrap;",
+                                                                "{desc}" }
+                                                        }
+                                                    }
+                                                    button {
+                                                        style: "flex-shrink:0; padding:4px 10px; font-size:0.65rem; border-radius:7px;
+                                                                cursor:pointer; background:#1a2e0a; color:#86efac; border:1px solid #166534;",
+                                                        onclick: move |_| {
+                                                            use shared::api_types::inventory::{AddItemRequest, ItemCategory};
+                                                            let cat = match cat2.as_str() {
+                                                                "weapon"     => ItemCategory::Weapon,
+                                                                "armour"     => ItemCategory::Armour,
+                                                                "consumable" => ItemCategory::Consumable,
+                                                                "tool"       => ItemCategory::Tool,
+                                                                "treasure"   => ItemCategory::Treasure,
+                                                                _            => ItemCategory::Misc,
+                                                            };
+                                                            let item = shared::api_types::inventory::InventoryItem::new(
+                                                                name2.clone(), cat, desc2.clone(), 1);
+                                                            let item = shared::api_types::inventory::InventoryItem {
+                                                                notes: notes2.clone(), ..item
+                                                            };
+                                                            let s = s3.clone();
+                                                            spawn(async move {
+                                                                if let Ok(_) = s.persistence.add_item(character_id, item).await {
+                                                                    if let Ok((items, _)) = s.persistence.get_inventory(character_id).await {
+                                                                        live_items.set(items);
+                                                                    }
+                                                                }
+                                                            });
+                                                            show_vault_items.set(false);
+                                                        },
+                                                        "+ Al inventario"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Input numérico de moneda para el editor del DM ──────────────────────────────
+
+#[component]
+fn CurrencyInput(label: &'static str, accent: &'static str, mut value: Signal<u32>) -> Element {
+    rsx! {
+        div {
+            style: "display:flex; flex-direction:column; align-items:center; gap:5px;",
+            span { style: "font-size:0.65rem; font-weight:700; color:{accent};", "{label}" }
+            input {
+                r#type: "number", min: "0",
+                style: "width:100%; background:#1c1917; border:1px solid #44403c;
+                        border-radius:8px; padding:5px 4px; text-align:center;
+                        font-size:0.95rem; font-weight:700; color:#e7e5e4;
+                        outline:none; box-sizing:border-box;",
+                value: "{value}",
+                oninput: move |e| {
+                    if let Ok(v) = e.value().parse::<u32>() { value.set(v); }
+                },
+            }
         }
     }
 }
@@ -756,6 +1421,274 @@ fn ItemRow(item: InventoryItem) -> Element {
             }
             div { style: "font-size:0.78rem; color:#78716c; text-align:center;", "×{item.quantity}" }
             div { style: "font-size:0.72rem; color:#57534e; text-align:right;", "{total_w:.1} lb" }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HECHIZOS — Widgets
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Panel de espacios de hechizo — muestra Nv1–9 con contador editable.
+#[component]
+fn SpellSlotsPanel(
+    character_id: Uuid,
+    slots: Vec<SpellSlotLevel>,
+    on_update: EventHandler<Vec<SpellSlotLevel>>,
+) -> Element {
+    let state = consume_context::<SharedState>().0;
+    // Trabajamos sobre una copia editable
+    let mut local: Signal<Vec<SpellSlotLevel>> = use_signal(|| slots.clone());
+    use_effect(move || {
+        local.set(slots.clone());
+    });
+
+    let save_slots = {
+        let s = state.clone();
+        move |_| {
+            use shared::api_types::spells::UpdateSpellSlotsRequest;
+            let req = UpdateSpellSlotsRequest {
+                slots: local.read().clone(),
+            };
+            let s2 = s.clone();
+            let slots_snap = local.read().clone();
+            spawn(async move {
+                let _ = s2.persistence.update_spell_slots(character_id, req).await;
+            });
+            on_update.call(slots_snap);
+        }
+    };
+
+    rsx! {
+        div {
+            style: "background:#111110; border:1px solid #292524; border-radius:14px; padding:14px 16px;",
+            div { style: "display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;",
+                span { style: "font-size:0.65rem; color:#78716c; letter-spacing:0.1em;", "ESPACIOS DE HECHIZO" }
+                button {
+                    style: "padding:3px 10px; font-size:0.62rem; border-radius:6px; cursor:pointer;
+                            background:#1a1208; color:#f59e0b; border:1px solid #78350f;",
+                    onclick: save_slots, "💾 Guardar espacios"
+                }
+            }
+            // Grid de niveles 1–9
+            div { style: "display:grid; grid-template-columns:repeat(9,1fr); gap:6px;",
+                for lvl_idx in 0..9u8 {
+                    {
+                        let lvl_num = lvl_idx + 1;
+                        // Buscamos el nivel o creamos uno vacío
+                        let slot = local.read().iter()
+                            .find(|s| s.level == lvl_num)
+                            .cloned()
+                            .unwrap_or(SpellSlotLevel { level: lvl_num, total: 0, remaining: 0 });
+                        rsx! {
+                            div {
+                                style: "display:flex; flex-direction:column; align-items:center; gap:4px;",
+                                span { style: "font-size:0.58rem; color:#57534e;", "Nv{lvl_num}" }
+                                // Total
+                                input {
+                                    r#type: "number", min: "0", max: "9",
+                                    style: "width:100%; background:#1c1917; border:1px solid #44403c;
+                                            border-radius:6px; padding:4px 2px; text-align:center;
+                                            font-size:0.85rem; color:#e7e5e4; outline:none;
+                                            box-sizing:border-box;",
+                                    title: "Total",
+                                    value: "{slot.total}",
+                                    oninput: move |e| {
+                                        if let Ok(v) = e.value().parse::<u8>() {
+                                            let mut s = local.write();
+                                            if let Some(existing) = s.iter_mut().find(|x| x.level == lvl_num) {
+                                                existing.total = v;
+                                                if existing.remaining > v { existing.remaining = v; }
+                                            } else {
+                                                s.push(SpellSlotLevel { level: lvl_num, total: v, remaining: v.min(v) });
+                                            }
+                                        }
+                                    }
+                                }
+                                // Restantes
+                                input {
+                                    r#type: "number", min: "0", max: "{slot.total}",
+                                    style: "width:100%; background:#1c1917; border:1px solid #065f46;
+                                            border-radius:6px; padding:4px 2px; text-align:center;
+                                            font-size:0.85rem; color:#34d399; outline:none;
+                                            box-sizing:border-box;",
+                                    title: "Restantes",
+                                    value: "{slot.remaining}",
+                                    oninput: move |e| {
+                                        if let Ok(v) = e.value().parse::<u8>() {
+                                            let mut s = local.write();
+                                            if let Some(existing) = s.iter_mut().find(|x| x.level == lvl_num) {
+                                                existing.remaining = v.min(existing.total);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            p { style: "font-size:0.6rem; color:#44403c; margin:8px 0 0;",
+                "Fila superior: total · Fila inferior: restantes (verde)" }
+        }
+    }
+}
+
+/// Fila de un hechizo en el panel DM (con toggle preparado + eliminar).
+#[component]
+fn SpellRowDm(
+    spell: Spell,
+    is_prepared: bool,
+    character_id: Uuid,
+    on_toggle: EventHandler<Uuid>,
+    on_remove: EventHandler<Uuid>,
+) -> Element {
+    let mut expanded = use_signal(|| false);
+    let level_str = if spell.level == 0 {
+        "Truco".to_string()
+    } else {
+        format!("Nv{}", spell.level)
+    };
+    let school_str = spell.school.label();
+    let prep_bg = if is_prepared { "#1a2e0a" } else { "#111110" };
+    let prep_col = if is_prepared { "#86efac" } else { "#57534e" };
+    let prep_brd = if is_prepared { "#166534" } else { "#292524" };
+    let conc_badge = if spell.concentration { " ◇C" } else { "" };
+    let rit_badge = if spell.ritual { " ◆R" } else { "" };
+    let sid = spell.id;
+
+    rsx! {
+        div {
+            style: "background:#111110; border:1px solid #292524; border-radius:10px; overflow:hidden;",
+
+            // ─ Cabecera ─────────────────────────────────────────────────────
+            div {
+                style: "display:flex; align-items:center; gap:8px; padding:9px 12px; cursor:pointer;",
+                onclick: move |_| { let v = *expanded.read(); expanded.set(!v); },
+
+                // Badge nivel
+                span {
+                    style: "flex-shrink:0; font-size:0.6rem; font-weight:700; color:#a78bfa;
+                            background:#1e1030; border:1px solid #4c1d95; border-radius:6px;
+                            padding:2px 6px;",
+                    "{level_str}"
+                }
+                // Nombre
+                span {
+                    style: "flex:1; font-size:0.83rem; font-weight:500; color:#d6d3d1;
+                            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;",
+                    "{spell.name}{conc_badge}{rit_badge}"
+                }
+                // Escuela
+                span { style: "font-size:0.62rem; color:#78716c; flex-shrink:0;", "{school_str}" }
+
+                // Toggle preparado
+                button {
+                    style: "flex-shrink:0; padding:2px 8px; font-size:0.6rem; border-radius:6px;
+                            background:{prep_bg}; color:{prep_col}; border:1px solid {prep_brd};
+                            cursor:pointer;",
+                    onclick: move |e| { e.stop_propagation(); on_toggle.call(sid); },
+                    if is_prepared { "✔ Prep" } else { "Preparar" }
+                }
+                // Eliminar
+                button {
+                    style: "flex-shrink:0; padding:2px 7px; font-size:0.6rem; border-radius:6px;
+                            background:#200a0a; color:#f87171; border:1px solid #7f1d1d;
+                            cursor:pointer;",
+                    onclick: move |e| { e.stop_propagation(); on_remove.call(sid); },
+                    "×"
+                }
+                span { style: "font-size:0.65rem; color:#57534e;",
+                    if *expanded.read() { "▴" } else { "▾" }
+                }
+            }
+
+            // ─ Detalle expandible ─────────────────────────────────────────
+            if *expanded.read() {
+                div {
+                    style: "padding:10px 14px; border-top:1px solid #1c1917;
+                            display:flex; flex-direction:column; gap:7px;",
+
+                    // Meta
+                    div { style: "display:flex; flex-wrap:wrap; gap:10px;",
+                        if !spell.casting_time.is_empty() {
+                            SpellMeta { label: "⏱ Tiempo", value: spell.casting_time.clone() }
+                        }
+                        if !spell.range.is_empty() {
+                            SpellMeta { label: "🎯 Alcance", value: spell.range.clone() }
+                        }
+                        if !spell.duration.is_empty() {
+                            SpellMeta { label: "⌛ Duración", value: spell.duration.clone() }
+                        }
+                        if let Some(dmg) = &spell.damage {
+                            SpellMeta { label: "⚔️ Daño", value: dmg.clone() }
+                        }
+                        if let Some(sv) = &spell.saving_throw {
+                            SpellMeta { label: "🛡 Salvación", value: sv.clone() }
+                        }
+                    }
+
+                    if !spell.description.is_empty() {
+                        p { style: "font-size:0.78rem; color:#a8a29e; line-height:1.55;
+                                    white-space:pre-wrap; margin:0;",
+                            "{spell.description}" }
+                    }
+                    if !spell.notes.is_empty() {
+                        p { style: "font-size:0.72rem; color:#78716c; font-style:italic; margin:0;",
+                            "Notas: {spell.notes}" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn SpellMeta(label: &'static str, value: String) -> Element {
+    rsx! {
+        div { style: "display:flex; flex-direction:column; gap:1px;",
+            span { style: "font-size:0.58rem; color:#57534e;", "{label}" }
+            span { style: "font-size:0.75rem; color:#d6d3d1; font-weight:500;", "{value}" }
+        }
+    }
+}
+
+#[component]
+fn SpellInput(label: &'static str, mut value: Signal<String>) -> Element {
+    rsx! {
+        div { style: "display:flex; flex-direction:column; gap:4px;",
+            label { style: "font-size:0.62rem; color:#78716c;", "{label}" }
+            input {
+                style: "background:#111110; border:1px solid #44403c; border-radius:8px;
+                        padding:7px 8px; color:#e7e5e4; font-size:0.85rem; outline:none;
+                        width:100%; box-sizing:border-box;",
+                value: "{value}",
+                oninput: move |e| value.set(e.value())
+            }
+        }
+    }
+}
+
+#[component]
+fn CheckFlag(label: &'static str, mut value: Signal<bool>) -> Element {
+    let checked = *value.read();
+    let col = if checked { "#fbbf24" } else { "#57534e" };
+    rsx! {
+        button {
+            style: "display:flex; align-items:center; gap:6px; background:none; border:none;
+                    cursor:pointer; color:{col}; font-size:0.75rem; padding:0;",
+            onclick: move |_| { let v = *value.read(); value.set(!v); },
+            {
+            let check_bg = if checked { "#92400e" } else { "transparent" };
+            rsx! {
+            span { style: "width:14px; height:14px; border-radius:4px; border:1px solid {col};
+                           background:{check_bg};
+                           display:flex; align-items:center; justify-content:center;",
+                if checked { span { style: "font-size:0.6rem; color:#fef3c7;", "✓" } }
+            }
+            } // rsx!
+            } // let check_bg
+            "{label}"
         }
     }
 }

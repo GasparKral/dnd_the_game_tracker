@@ -1,5 +1,9 @@
 package io.github.gasparkral.dnd.model
 
+import io.github.gasparkral.dnd.model.Currency
+import io.github.gasparkral.dnd.model.InventoryItem
+import io.github.gasparkral.dnd.model.Spell
+import io.github.gasparkral.dnd.model.SpellSlotLevel
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -22,6 +26,13 @@ data class SavedCharacter(
     @SerialName("max_hp")        val maxHp: Int,
     val xp: Long,
     val notes: String = "",
+    // Inventario y monedas — presentes en el JSON del servidor
+    val inventory: List<InventoryItem> = emptyList(),
+    val currency: Currency = Currency(),
+    // Hechizos
+    @SerialName("spell_slots")     val spellSlots: List<SpellSlotLevel> = emptyList(),
+    @SerialName("known_spells")    val knownSpells: List<Spell> = emptyList(),
+    @SerialName("prepared_spells") val preparedSpells: List<Spell> = emptyList(),
     @SerialName("updated_at")    val updatedAt: String,
 )
 
