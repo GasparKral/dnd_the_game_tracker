@@ -356,6 +356,54 @@ impl VaultManager {
             .find(|e| e.file_name().to_string_lossy().to_lowercase() == target)
             .map(|e| e.path().to_path_buf())
     }
+
+    // -----------------------------------------------------------------------
+    // Escritura de notas
+    // -----------------------------------------------------------------------
+
+    /// Crea (o sobreescribe) una nota en el vault.
+    ///
+    /// # Parámetros
+    /// - `subfolder`: ruta relativa al root donde crear la nota. Ej: `"Items/Weapons"`.
+    ///   Se crea el directorio si no existe.
+    /// - `slug`: nombre del archivo sin extensión. Ej: `"espada_larga_1"`.
+    /// - `content`: contenido completo del archivo `.md` (frontmatter + cuerpo).
+    ///
+    /// # Errores
+    /// Devuelve `VaultError::NotConfigured` si el vault no está abierto.
+    /// Devuelve `VaultError::Io` si no se puede crear el directorio o escribir el archivo.
+    pub async fn write_note(
+        &self,
+        subfolder: &str,
+        slug: &str,
+        content: &str,
+    ) -> Result<(), VaultError> {
+        let root = self.root().await?;
+        let dir = root.join(subfolder);
+
+        // Crear la carpeta si no existe
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| VaultError::Io {
+                path: dir.clone(),
+                source: e,
+            })?;
+
+        let file_path = dir.join(format!("{slug}.md"));
+
+        tokio::fs::write(&file_path, content)
+            .await
+            .map_err(|e| VaultError::Io {
+                path: file_path.clone(),
+                source: e,
+            })?;
+
+        // Invalidar el caché del vault para que el próximo scan encuentre la nota nueva
+        // (el VaultManager no tiene caché explícita — cada llamada a scan() re-lee el disco)
+
+        tracing::info!("Nota creada en vault: {}", file_path.display());
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------

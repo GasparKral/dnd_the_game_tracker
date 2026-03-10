@@ -131,7 +131,10 @@ pub struct SpellSlotLevel {
 // Requests / Responses
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+/// Añadir un hechizo al personaje (conocido y opcionalmente preparado).
+// Bug 6 corregido: añadidos Serialize + Clone para que pueda cruzar fronteras
+// de red (WebSocket DM→jugador, logs, etc.) sin modificar shared.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddSpellRequest {
     pub name: String,
     pub level: u8,
@@ -147,9 +150,9 @@ pub struct AddSpellRequest {
     pub components: SpellComponents,
     #[serde(default)]
     pub description: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub damage: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub saving_throw: Option<String>,
     #[serde(default)]
     pub notes: String,
@@ -162,7 +165,9 @@ pub struct AddSpellRequest {
     pub prepared: bool,
 }
 
-#[derive(Debug, Deserialize)]
+/// Actualizar los espacios de hechizo de un personaje.
+// Bug 6 corregido: añadidos Serialize + Clone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSpellSlotsRequest {
     /// Lista completa de niveles con sus totales y restantes
     pub slots: Vec<SpellSlotLevel>,

@@ -1,25 +1,15 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
-
+kotlin {
+    jvmToolchain(17)
+}
 android {
     namespace = "com.dndmanager"
     compileSdk = 36
-
-    // 🔽 AGREGA ESTAS LÍNEAS PARA UNIFICAR LAS VERSIONES DE JAVA
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-
-    kotlinOptions {
-        JvmTarget.JVM_17
-    }
 
     defaultConfig {
         applicationId = "com.dndmanager"
@@ -31,12 +21,10 @@ android {
 
     buildTypes {
         debug {
-            // En debug apunta a localhost (cuando el móvil está en la misma red)
             buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:3000\"")
         }
         release {
             isMinifyEnabled = true
-            // En release apunta al túnel de Cloudflare (URL fija)
             buildConfigField("String", "BASE_URL", "\"https://tu-tunnel.trycloudflare.com\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

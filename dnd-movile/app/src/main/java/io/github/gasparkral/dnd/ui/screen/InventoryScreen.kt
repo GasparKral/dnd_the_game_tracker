@@ -32,9 +32,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.gasparkral.dnd.model.BonusType
 import io.github.gasparkral.dnd.model.Currency
 import io.github.gasparkral.dnd.model.InventoryItem
 import io.github.gasparkral.dnd.model.ItemCategory
+import io.github.gasparkral.dnd.model.StatBonus
+import io.github.gasparkral.dnd.model.formatModifier
 import io.github.gasparkral.dnd.ui.component.DndDivider
 import io.github.gasparkral.dnd.ui.theme.Ash
 import io.github.gasparkral.dnd.ui.theme.Aurum
@@ -202,8 +205,8 @@ fun InventoryScreen(
         AddItemDialog(
             isSaving = state.isSaving,
             onDismiss = vm::closeAddDialog,
-            onConfirm = { name, cat, desc, qty, weight, notes ->
-                vm.addItem(name, cat, desc, qty, weight, notes)
+            onConfirm = { name, cat, desc, qty, weight, accessoryType, notes ->
+                vm.addItem(name, cat, desc, qty, weight, accessoryType, notes)
             },
         )
     }
@@ -576,8 +579,44 @@ private fun BagSlot(
                     )
                 }
 
+                // Badge tipo de accesorio (solo si aplica)
+                if (item.category == ItemCategory.Accessory && item.accessoryType != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF1E1030))
+                                .border(1.dp, Color(0xFF7C3AED), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                "💍 ${item.accessoryType}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFC084FC),
+                                fontSize = 10.sp,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+
+                // Badges de bonificadores de estadística
+                if (item.statBonuses.isNotEmpty()) {
+                    StatBonusBadges(
+                        bonuses = item.statBonuses,
+                        isEquipped = item.equipped,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (item.category == ItemCategory.Weapon || item.category == ItemCategory.Armour) {
+                    if (item.category == ItemCategory.Weapon
+                        || item.category == ItemCategory.Armour
+                        || item.category == ItemCategory.Accessory
+                    ) {
                         val equipLabel = if (item.equipped) "✓ Equipado" else "Equipar"
                         OutlinedButton(
                             onClick = onToggleEquipped,
@@ -613,6 +652,84 @@ private fun BagSlot(
 }
 
 // ---------------------------------------------------------------------------
+// Badges de bonificadores de estadística
+// ---------------------------------------------------------------------------
+
+/**
+ * Muestra una fila horizontal de badges para cada [StatBonus] de un ítem.
+ * Cuando el ítem está equipado los badges se iluminan con colores positivo/negativo.
+ */
+@Composable
+private fun StatBonusBadges(
+    bonuses: List<StatBonus>,
+    isEquipped: Boolean,
+) {
+    // Colores según estado y signo
+    val activePosColor   = Color(0xFF16A34A)  // verde equipo positivo
+    val activePosBorder  = Color(0xFF4ADE80)
+    val activeNegColor   = Color(0xFF9F1239)  // rojo equipo negativo (maldición)
+    val activeNegBorder  = Color(0xFFF87171)
+    val inactiveColor    = Color(0xFF1C1917)  // gris apagado sin equipar
+    val inactiveBorder   = Color(0xFF292524)
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Título de sección
+        Text(
+            text = if (isEquipped) "✨ Bonificadores activos" else "🔒 Bonificadores (equipa para activar)",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isEquipped) Color(0xFF86EFAC) else Color(0xFF57534E),
+            fontSize = 9.sp,
+        )
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(vertical = 2.dp),
+        ) {
+            items(bonuses) { bonus ->
+                val isPositive = bonus.value >= 0
+                val bgColor = when {
+                    !isEquipped -> inactiveColor
+                    isPositive  -> activePosColor.copy(alpha = 0.15f)
+                    else        -> activeNegColor.copy(alpha = 0.15f)
+                }
+                val borderColor = when {
+                    !isEquipped -> inactiveBorder
+                    isPositive  -> activePosBorder.copy(alpha = 0.6f)
+                    else        -> activeNegBorder.copy(alpha = 0.6f)
+                }
+                val textColor = when {
+                    !isEquipped -> Color(0xFF57534E)
+                    isPositive  -> Color(0xFF86EFAC)
+                    else        -> Color(0xFFFCA5A5)
+                }
+                val typeTag = when (bonus.bonusType) {
+                    BonusType.Status       -> " [Estado]"
+                    BonusType.Circumstance -> " [Circ.]"
+                    BonusType.Item         -> ""
+                    BonusType.Untyped      -> ""
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(bgColor)
+                        .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        text = "${bonus.stat.emoji()} ${bonus.stat.label()} ${formatModifier(bonus.value)}$typeTag",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor,
+                        fontSize = 10.sp,
+                        fontWeight = if (isEquipped) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Diálogo añadir objeto
 // ---------------------------------------------------------------------------
 
@@ -620,7 +737,7 @@ private fun BagSlot(
 private fun AddItemDialog(
     isSaving: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (String, ItemCategory, String, Int, Float?, String) -> Unit,
+    onConfirm: (String, ItemCategory, String, Int, Float?, String?, String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -628,6 +745,7 @@ private fun AddItemDialog(
     var quantityText by remember { mutableStateOf("1") }
     var weightText by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(ItemCategory.Misc) }
+    var accessoryType by remember { mutableStateOf("") }
     var nameError by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -680,6 +798,19 @@ private fun AddItemDialog(
                         singleLine = true,
                     )
                 }
+                // Campo tipo de accesorio — solo visible si la categoría es Accessory
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = selectedCategory == ItemCategory.Accessory,
+                ) {
+                    OutlinedTextField(
+                        value = accessoryType,
+                        onValueChange = { accessoryType = it },
+                        label = { Text("💍 Tipo de accesorio") },
+                        placeholder = { Text("ej: botas, anillo, capucha…") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
@@ -696,7 +827,9 @@ private fun AddItemDialog(
                         nameError = true; return@TextButton
                     }
                     val qty = quantityText.toIntOrNull()?.coerceAtLeast(1) ?: 1
-                    onConfirm(name, selectedCategory, description, qty, weightText.toFloatOrNull(), notes)
+                    val accType = if (selectedCategory == ItemCategory.Accessory && accessoryType.isNotBlank())
+                        accessoryType else null
+                    onConfirm(name, selectedCategory, description, qty, weightText.toFloatOrNull(), accType, notes)
                 },
                 enabled = !isSaving,
             ) {

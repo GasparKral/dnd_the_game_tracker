@@ -107,6 +107,8 @@ object HttpManager {
         Result.Err(HttpError.NetworkError(e.message ?: "Connection refused"))
     } catch (e: java.net.SocketTimeoutException) {
         Result.Err(HttpError.NetworkError("Timeout"))
+    } catch (e: java.nio.channels.UnresolvedAddressException) {
+        Result.Err(HttpError.NetworkError("No se pudo resolver la dirección del servidor"))
     } catch (e: Exception) {
         Result.Err(HttpError.NetworkError(e.message ?: "Unknown network error"))
     }

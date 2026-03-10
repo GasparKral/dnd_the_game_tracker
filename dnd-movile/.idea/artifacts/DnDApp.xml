@@ -1,0 +1,6 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="DnDApp">
+    <output-path>$PROJECT_DIR$/out/artifacts/DnDApp</output-path>
+    <root id="archive" name="DnDApp.jar" />
+  </artifact>
+</component>

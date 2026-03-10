@@ -22,9 +22,15 @@ class SocketManager(
 
     fun connect(url: String) {
         scope.launch {
-            client.webSocket(urlString = url) {
-                session = this
-                listenIncoming()
+            try {
+                client.webSocket(urlString = url) {
+                    session = this
+                    listenIncoming()
+                }
+            } catch (e: java.nio.channels.UnresolvedAddressException) {
+                Log.e("SocketManager", "No se pudo resolver la dirección WebSocket: $url")
+            } catch (e: Exception) {
+                Log.e("SocketManager", "Error en WebSocket: ${e.message}")
             }
         }
     }

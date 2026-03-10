@@ -197,22 +197,33 @@ fn VaultTree(
 pub fn Lore() -> Element {
     let state = consume_context::<SharedState>().0;
 
-    // Usamos VaultManager::scan() en lugar del walkdir local
-    let entries = use_resource(move || {
+    // Signal con los datos del vault: (root, entradas).
+    // Se rellena via use_future que espera activamente a que vault.open() termine.
+    let mut vault_data: Signal<Option<(PathBuf, Vec<VaultEntry>)>> = use_signal(|| None);
+
+    use_future(move || {
         let state = state.clone();
         async move {
-            if !state.vault.is_configured().await {
-                return (PathBuf::new(), vec![]);
+            // Polling hasta que el vault esté configurado (cubre la condición de
+            // carrera entre vault.open() en load_campain y la navegación a /lore)
+            loop {
+                if state.vault.is_configured().await {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
             let root = state.vault.root().await.unwrap_or_default();
             let scanned = state.vault.scan_tree().await.unwrap_or_default();
-            (root, scanned)
+            vault_data.set(Some((root, scanned)));
         }
     });
 
+    // «entries» es un wrapper de lectura sobre vault_data para no cambiar el resto del componente
+    let entries = vault_data;
+
     let mut expanded: Signal<HashSet<PathBuf>> = use_signal(HashSet::new);
 
-    // Expandir todos los directorios al cargar
+    // Expandir todos los directorios cuando los datos lleguen
     use_effect(move || {
         if let Some((_, list)) = entries.read().as_ref() {
             let dirs: HashSet<PathBuf> = list
@@ -272,6 +283,7 @@ pub fn Lore() -> Element {
             }
         }
     });
+    // Nota: entries es ahora Signal<Option<...>> — mismo API que antes (read().as_ref())
 
     rsx! {
         div {

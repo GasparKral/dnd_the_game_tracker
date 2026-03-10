@@ -43,7 +43,7 @@ fun CharacterSelectionScreen(
             onErr = { err ->
                 when {
                     // 503 = no hay campaña activa todavía — lista vacía es el comportamiento esperado
-                    err.toString().contains("503") -> {
+                    err is io.github.gasparkral.dnd.infra.HttpError.ApiError && err.status.value == 503 -> {
                         characters = emptyList()
                         isLoading = false
                     }

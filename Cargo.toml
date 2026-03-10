@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "dnd-desktop",
+    "shared",
 ]
 resolver = "3"
 

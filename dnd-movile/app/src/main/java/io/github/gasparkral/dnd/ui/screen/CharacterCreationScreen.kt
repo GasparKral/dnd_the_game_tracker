@@ -1,5 +1,6 @@
 package io.github.gasparkral.dnd.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -13,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.gasparkral.dnd.model.AttributesDto
@@ -146,7 +148,11 @@ private fun WizardContent(
                     attributes = state.attributes,
                     onChanged = viewModel::onAttributeChanged,
                 )
-                CreationStep.Feats -> StepFeats()
+                CreationStep.Feats -> StepFeats(
+                    feats = state.feats,
+                    selectedIds = state.selectedFeatIds,
+                    onToggle = viewModel::onFeatToggled,
+                )
                 CreationStep.Review -> StepReview(state)
                 CreationStep.Complete -> Unit
             }
@@ -452,19 +458,82 @@ private fun StepAttributes(
 }
 
 // ---------------------------------------------------------------------------
-// Paso: dones (stub)
+// Paso: dones
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun StepFeats() {
+private fun StepFeats(
+    feats: List<CatalogEntry>,
+    selectedIds: List<String>,
+    onToggle: (String) -> Unit,
+) {
     Column {
         Text("Dones", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
-            "En DnD 2024 algunos trasfondos otorgan un don inicial. Próximamente podrás elegirlos aquí.",
-            style = MaterialTheme.typography.bodyMedium,
+            "Selecciona los dones de tu personaje. En D&D 2024 algunos trasfondos otorgan un don inicial.",
+            style = MaterialTheme.typography.bodySmall,
             color = Ash,
         )
+        Spacer(Modifier.height(12.dp))
+
+        if (feats.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Gold)
+            }
+            return@Column
+        }
+
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.heightIn(max = 600.dp),
+        ) {
+            items(feats, key = { it.id }) { feat ->
+                val selected = feat.id in selectedIds
+                Card(
+                    onClick = { onToggle(feat.id) },
+                    border = BorderStroke(1.dp, if (selected) Gold else Iron),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected) Gold.copy(alpha = 0.08f) else Color.Transparent,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onToggle(feat.id) },
+                            colors = CheckboxDefaults.colors(checkedColor = Gold),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = feat.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Parchment,
+                            )
+                            feat.description?.let {
+                                Text(
+                                    text = it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Ash,
+                                )
+                            }
+                            if (feat.traitsPreview.isNotEmpty()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = feat.traitsPreview.joinToString(" · "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Gold.copy(alpha = 0.7f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

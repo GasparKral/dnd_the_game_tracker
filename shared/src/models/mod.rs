@@ -1,5 +1,4 @@
 pub mod attributes;
-pub mod builders;
 pub mod character;
 pub mod damage;
 pub mod defaults;

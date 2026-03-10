@@ -32,6 +32,7 @@ data class CreationUiState(
     val races: List<CatalogEntry> = emptyList(),
     val classes: List<CatalogEntry> = emptyList(),
     val backgrounds: List<CatalogEntry> = emptyList(),
+    val feats: List<CatalogEntry> = emptyList(),
 
     // ── Draft del servidor ───────────────────────────────────────────────────
     val draft: CharacterDraft = CharacterDraft(),
@@ -44,6 +45,8 @@ data class CreationUiState(
     val attributes: AttributesDto = AttributesDto.DEFAULT,
     /** choices[choiceId] = valor elegido */
     val choices: Map<String, JsonElement> = emptyMap(),
+    /** IDs de los dones seleccionados en el paso Feats */
+    val selectedFeatIds: List<String> = emptyList(),
 
     // ── Estado de la llamada al servidor ─────────────────────────────────────
     val isSaving: Boolean = false,
@@ -109,19 +112,23 @@ class CharacterCreationViewModel(
             val racesDeferred      = async { repo.getRaces() }
             val classesDeferred    = async { repo.getClasses() }
             val backgroundDeferred = async { repo.getBackgrounds() }
+            val featsDeferred      = async { repo.getFeats() }
 
             val racesResult      = racesDeferred.await()
             val classesResult    = classesDeferred.await()
             val backgroundResult = backgroundDeferred.await()
+            val featsResult      = featsDeferred.await()
 
             val races       = racesResult.ok()?.entries      ?: emptyList()
             val classes     = classesResult.ok()?.entries    ?: emptyList()
             val backgrounds = backgroundResult.ok()?.entries ?: emptyList()
+            val feats       = featsResult.ok()?.entries      ?: emptyList()
 
             // El primer error que encontremos, con su causa real
             val catalogError: String? = racesResult.err()?.toString()
                 ?: classesResult.err()?.toString()
                 ?: backgroundResult.err()?.toString()
+                ?: featsResult.err()?.toString()
 
             if (catalogError != null) {
                 _uiState.update {
@@ -131,6 +138,7 @@ class CharacterCreationViewModel(
                         races = races,
                         classes = classes,
                         backgrounds = backgrounds,
+                        feats = feats,
                     )
                 }
                 return@launch
@@ -146,6 +154,7 @@ class CharacterCreationViewModel(
                     races = races,
                     classes = classes,
                     backgrounds = backgrounds,
+                    feats = feats,
                     draft = draftResult.ok()?.draft ?: CharacterDraft(),
                 )
             }
@@ -167,6 +176,13 @@ class CharacterCreationViewModel(
 
     fun onAttributeChanged(field: String, value: Int) =
         _uiState.update { it.copy(attributes = it.attributes.withField(field, value)) }
+
+    fun onFeatToggled(featId: String) =
+        _uiState.update { state ->
+            val current = state.selectedFeatIds.toMutableList()
+            if (featId in current) current.remove(featId) else current.add(featId)
+            state.copy(selectedFeatIds = current)
+        }
 
     // ── Avanzar paso — llama al servidor ─────────────────────────────────────
 
@@ -224,6 +240,7 @@ class CharacterCreationViewModel(
             classId      = state.selectedClassId.takeIf { state.currentStep == CreationStep.Class },
             backgroundId = state.selectedBackgroundId.takeIf { state.currentStep == CreationStep.Background },
             attributes   = state.attributes.takeIf { state.currentStep == CreationStep.Attributes },
+            featIds      = state.selectedFeatIds.takeIf { state.currentStep == CreationStep.Feats } ?: emptyList(),
             choices      = state.choices,
         )
 }

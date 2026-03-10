@@ -409,7 +409,7 @@ async fn add_item(
     Json(req): Json<AddItemRequest>,
 ) -> impl IntoResponse {
     let item = InventoryItem::new(req.name, req.category, req.description, req.quantity);
-    let item = InventoryItem { weight: req.weight, notes: req.notes, ..item };
+    let item = InventoryItem { weight: req.weight, notes: req.notes, accessory_type: req.accessory_type, stat_bonuses: req.stat_bonuses, ..item };
     match state.0.persistence.add_item(id, item).await {
         Ok(i) => {
             state.0.ws_pool.broadcast(ServerMessage::InventoryChanged { character_id: id });
@@ -527,6 +527,27 @@ async fn update_spell_slots(
     }
 }
 
+/// Normaliza el valor de `stat_bonuses` del frontmatter del vault.
+/// Obsidian puede guardarlo como:
+///   - Array YAML nativo  → serde_json::Value::Array
+///   - String JSON inline  → serde_json::Value::String (ej: '[{"stat":"strength",...}]')
+/// Devuelve siempre un Value::Array listo para serializar.
+fn normalize_stat_bonuses(raw: Option<&serde_json::Value>) -> serde_json::Value {
+    match raw {
+        None => serde_json::Value::Array(vec![]),
+        Some(serde_json::Value::Array(arr)) => serde_json::Value::Array(arr.clone()),
+        Some(serde_json::Value::String(s)) => {
+            // Obsidian escribió el array como string JSON — lo re-parseamos
+            serde_json::from_str(s)
+                .unwrap_or(serde_json::Value::Array(vec![]))
+        }
+        Some(other) => {
+            tracing::warn!("stat_bonuses tiene un formato inesperado: {:?}", other);
+            serde_json::Value::Array(vec![])
+        }
+    }
+}
+
 /// GET /api/vault/items — lista los objetos del vault con dnd_type: item
 async fn get_vault_items(State(state): State<SharedState>) -> impl IntoResponse {
     if !state.0.vault.is_configured().await {
@@ -542,6 +563,10 @@ async fn get_vault_items(State(state): State<SharedState>) -> impl IntoResponse 
                     .and_then(|v| v.as_str()).unwrap_or(""),
                 "category": e.frontmatter.extra.get("category")
                     .and_then(|v| v.as_str()).unwrap_or("misc"),
+                "accessory_type": e.frontmatter.extra.get("accessory_type")
+                    .and_then(|v| v.as_str()),
+                // Normaliza stat_bonuses: puede ser array YAML o string JSON inline (Obsidian)
+                "stat_bonuses": normalize_stat_bonuses(e.frontmatter.extra.get("stat_bonuses")),
                 "weight": e.frontmatter.extra.get("weight").and_then(|v| v.as_f64()),
                 "damage": e.frontmatter.extra.get("damage").and_then(|v| v.as_str()),
                 "notes": e.frontmatter.extra.get("notes").and_then(|v| v.as_str()).unwrap_or(""),

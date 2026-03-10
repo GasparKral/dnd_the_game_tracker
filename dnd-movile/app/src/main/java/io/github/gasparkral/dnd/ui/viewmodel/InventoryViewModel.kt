@@ -24,6 +24,8 @@ data class InventoryUiState(
     val showAddDialog: Boolean = false,
     val isSaving: Boolean = false,
     val showCurrencyDialog: Boolean = false,
+    /** Stats efectivos = base + bonuses de equipo. Null hasta que se cargue el personaje. */
+    val effectiveStats: EffectiveStats? = null,
 )
 
 class InventoryViewModel(
@@ -31,6 +33,9 @@ class InventoryViewModel(
     private val repo: DraftRepository,
     private val socketManager: SocketManager,
 ) : ViewModel() {
+
+    /** Atributos base del personaje — se cargan una vez al inicio y se conservan. */
+    private var baseAttributes: AttributesDto? = null
 
     private val _state = MutableStateFlow(InventoryUiState())
     val state: StateFlow<InventoryUiState> = _state.asStateFlow()
@@ -68,20 +73,38 @@ class InventoryViewModel(
     fun loadInventory() {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
+
+            // Cargar atributos base del personaje si no los tenemos aún
+            if (baseAttributes == null) {
+                repo.getCharacter(characterId).fold(
+                    onOk = { baseAttributes = it.attributes },
+                    onErr = { /* si falla, el cálculo usará base vacía */ }
+                )
+            }
+
             repo.getInventory(characterId).fold(
                 onOk = { resp ->
+                    val attrs = baseAttributes ?: AttributesDto.DEFAULT
+                    val effective = calculateEffectiveStats(attrs, resp.items)
                     _state.update {
                         it.copy(
                             isLoading = false,
                             items = resp.items,
                             currency = resp.currency,
                             totalWeight = resp.totalWeight,
+                            effectiveStats = effective,
                         )
                     }
                 },
                 onErr = { _state.update { it.copy(isLoading = false, error = it.error) } }
             )
         }
+    }
+
+    /** Recalcula los [EffectiveStats] sobre la lista de ítems en memoria. */
+    private fun recalculateEffective(items: List<InventoryItem>) {
+        val attrs = baseAttributes ?: AttributesDto.DEFAULT
+        _state.update { it.copy(effectiveStats = calculateEffectiveStats(attrs, items)) }
     }
 
     // Añadir objeto
@@ -94,6 +117,7 @@ class InventoryViewModel(
         description: String,
         quantity: Int,
         weight: Float?,
+        accessoryType: String? = null,
         notes: String,
     ) {
         if (name.isBlank() || quantity < 1) return
@@ -101,17 +125,27 @@ class InventoryViewModel(
             _state.update { it.copy(isSaving = true) }
             repo.addItem(
                 characterId,
-                AddItemRequest(name.trim(), category, description.trim(), quantity, weight, notes.trim()),
+                AddItemRequest(
+                    name.trim(),
+                    category,
+                    description.trim(),
+                    quantity,
+                    weight,
+                    accessoryType,
+                    notes = notes.trim()
+                ),
             ).fold(
                 onOk = { item ->
+                    val newItems = _state.value.items + item
                     _state.update {
                         it.copy(
                             isSaving = false,
                             showAddDialog = false,
-                            items = it.items + item,
+                            items = newItems,
                             totalWeight = it.totalWeight + (item.weight ?: 0f) * item.quantity,
                         )
                     }
+                    recalculateEffective(newItems)
                     notifyDm()
                 },
                 onErr = { _state.update { it.copy(isSaving = false) } }
@@ -124,9 +158,9 @@ class InventoryViewModel(
         viewModelScope.launch {
             repo.updateItem(characterId, item.id, UpdateItemRequest(equipped = !item.equipped)).fold(
                 onOk = { updated ->
-                    _state.update { s ->
-                        s.copy(items = s.items.map { if (it.id == updated.id) updated else it })
-                    }
+                    val newItems = _state.value.items.map { if (it.id == updated.id) updated else it }
+                    _state.update { s -> s.copy(items = newItems) }
+                    recalculateEffective(newItems)
                     notifyDm()
                 },
                 onErr = {}
@@ -164,12 +198,14 @@ class InventoryViewModel(
         viewModelScope.launch {
             repo.deleteItem(characterId, item.id).fold(
                 onOk = {
+                    val newItems = _state.value.items.filter { it.id != item.id }
                     _state.update { s ->
                         s.copy(
-                            items = s.items.filter { it.id != item.id },
+                            items = newItems,
                             totalWeight = s.totalWeight - (item.weight ?: 0f) * item.quantity,
                         )
                     }
+                    recalculateEffective(newItems)
                     notifyDm()
                 },
                 onErr = {}

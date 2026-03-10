@@ -76,6 +76,9 @@ class DraftRepository {
     suspend fun getBackgrounds(): HttpResult<CatalogResponse> =
         HttpManager.get("/api/catalog/backgrounds")
 
+    suspend fun getFeats(): HttpResult<CatalogResponse> =
+        HttpManager.get("/api/catalog/feats")
+
     // ── Draft ─────────────────────────────────────────────────────────────────
 
     /** Inicia un nuevo draft en el servidor. Devuelve el draft con su id asignado. */

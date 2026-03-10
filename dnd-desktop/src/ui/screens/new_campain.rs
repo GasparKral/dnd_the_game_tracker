@@ -1,3 +1,13 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// new_campain.rs — Pantalla de creación de nueva campaña
+//
+// Bug corregido:
+//  • Después de crear la campaña en persistence.create(), si el usuario eligió
+//    un vault se llama también a persistence.set_vault_path() para que el campo
+//    vault_path quede persistido en el JSON (antes solo se abría el VaultManager
+//    en memoria pero nunca se guardaba la ruta en disco).
+// ═══════════════════════════════════════════════════════════════════════════
+
 use crate::states::SharedState;
 use dioxus::prelude::*;
 use std::path::PathBuf;
@@ -7,10 +17,10 @@ pub fn NewCampainMenu() -> Element {
     let nav = navigator();
     let state = use_context::<SharedState>();
 
-    let mut c_name = use_signal(|| String::new());
-    let mut c_desc = use_signal(|| String::new());
+    let mut c_name    = use_signal(String::new);
+    let mut c_desc    = use_signal(String::new);
     let mut directory = use_signal(|| PathBuf::new());
-    let mut error_msg = use_signal(|| String::new());
+    let mut error_msg = use_signal(String::new);
     let mut is_loading = use_signal(|| false);
 
     rsx!(
@@ -87,7 +97,7 @@ pub fn NewCampainMenu() -> Element {
                         disabled: is_loading(),
                         onclick: {
                             let state = state.clone();
-                            let nav = nav.clone();
+                            let nav   = nav.clone();
                             move |_| {
                                 let name = c_name.read().trim().to_string();
                                 if name.is_empty() {
@@ -98,37 +108,52 @@ pub fn NewCampainMenu() -> Element {
                                 let desc = c_desc.read().trim().to_string();
                                 let vault_path = {
                                     let p = directory.read().clone();
-                                    if p.as_os_str().is_empty() || !p.is_dir() { None } else { Some(p) }
+                                    if p.as_os_str().is_empty() || !p.is_dir() {
+                                        None
+                                    } else {
+                                        Some(p)
+                                    }
                                 };
 
-                                let state = state.clone();
-                                let nav = nav.clone();
-                                let mut error_msg = error_msg.clone();
-                                let mut is_loading = is_loading.clone();
+                                let state      = state.clone();
+                                let nav        = nav.clone();
+                                let mut em     = error_msg.clone();
+                                let mut loading = is_loading.clone();
 
                                 spawn(async move {
-                                    is_loading.set(true);
+                                    loading.set(true);
 
-                                    // 1. Crear campaña en el PersistenceManager
+                                    // 1. Crear campaña en disco
                                     match state.0.persistence.create(name, desc).await {
                                         Ok(_) => {}
                                         Err(e) => {
-                                            error_msg.set(format!("Error al crear la campaña: {e}"));
-                                            is_loading.set(false);
+                                            em.set(format!("Error al crear la campaña: {e}"));
+                                            loading.set(false);
                                             return;
                                         }
                                     }
 
-                                    // 2. Abrir vault si se eligió uno
+                                    // 2. Configurar vault (si se eligió uno)
+                                    //    FIX: se persiste la ruta en el JSON con set_vault_path()
+                                    //    ADEMÁS de abrir el VaultManager en memoria.
                                     if let Some(path) = vault_path {
+                                        // Guardar ruta en el JSON de la campaña
+                                        let path_str = path.to_string_lossy().to_string();
+                                        if let Err(e) = state.0.persistence.set_vault_path(path_str).await {
+                                            em.set(format!("Campaña creada pero error guardando ruta del vault: {e}"));
+                                            loading.set(false);
+                                            return;
+                                        }
+
+                                        // Abrir el VaultManager en memoria
                                         if let Err(e) = state.0.vault.open(path).await {
-                                            error_msg.set(format!("Campaña creada pero error al abrir el vault: {e}"));
-                                            is_loading.set(false);
+                                            em.set(format!("Campaña creada pero error abriendo el vault: {e}"));
+                                            loading.set(false);
                                             return;
                                         }
                                     }
 
-                                    is_loading.set(false);
+                                    loading.set(false);
                                     nav.push("/lore");
                                 });
                             }

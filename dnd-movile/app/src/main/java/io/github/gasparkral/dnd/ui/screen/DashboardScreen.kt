@@ -12,7 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import io.github.gasparkral.dnd.infra.repository.DraftRepository
+import io.github.gasparkral.dnd.model.BonusStat
+import io.github.gasparkral.dnd.model.EffectiveStats
 import io.github.gasparkral.dnd.model.SavedCharacter
+import io.github.gasparkral.dnd.model.attributeModifier
+import io.github.gasparkral.dnd.model.calculateEffectiveStats
+import io.github.gasparkral.dnd.model.formatModifier
 import io.github.gasparkral.dnd.ui.theme.*
 import org.koin.compose.koinInject
 
@@ -44,14 +49,21 @@ fun DashboardScreen(
         error != null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(error!!, color = Ember, style = MaterialTheme.typography.bodyMedium)
         }
-        else -> DashboardContent(
-            modifier              = modifier,
-            character             = character!!,
-            onNavigateToInventory = onNavigateToInventory,
-            onNavigateToLore      = onNavigateToLore,
-            onNavigateToCombat    = onNavigateToCombat,
-            onNavigateToSpells    = onNavigateToSpells,
-        )
+        else -> {
+            val c = character!!
+            val effectiveStats = remember(c.inventory) {
+                calculateEffectiveStats(c.attributes, c.inventory)
+            }
+            DashboardContent(
+                modifier              = modifier,
+                character             = c,
+                effectiveStats        = effectiveStats,
+                onNavigateToInventory = onNavigateToInventory,
+                onNavigateToLore      = onNavigateToLore,
+                onNavigateToCombat    = onNavigateToCombat,
+                onNavigateToSpells    = onNavigateToSpells,
+            )
+        }
     }
 }
 
@@ -59,6 +71,7 @@ fun DashboardScreen(
 private fun DashboardContent(
     modifier: Modifier,
     character: SavedCharacter,
+    effectiveStats: EffectiveStats,
     onNavigateToInventory: () -> Unit,
     onNavigateToLore: () -> Unit,
     onNavigateToCombat: () -> Unit,
@@ -91,16 +104,28 @@ private fun DashboardContent(
         }
 
         // ── Barra de estado ───────────────────────────────────────────────
+        val maxHpEffective = character.maxHp + effectiveStats.maxHpBonus
         Row(
             modifier              = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
+                .padding(bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            StatChip(label = "PG",  value = "${character.currentHp}/${character.maxHp}", modifier = Modifier.weight(1f))
-            StatChip(label = "Niv", value = "${character.level}",                        modifier = Modifier.weight(1f))
-            StatChip(label = "XP",  value = "${character.xp}",                           modifier = Modifier.weight(1f))
+            StatChip(
+                label    = "PG",
+                value    = "${character.currentHp}/$maxHpEffective",
+                modifier = Modifier.weight(1f),
+                bonus    = effectiveStats.maxHpBonus.takeIf { it != 0 },
+            )
+            StatChip(label = "Niv", value = "${character.level}", modifier = Modifier.weight(1f))
+            StatChip(label = "XP",  value = "${character.xp}",    modifier = Modifier.weight(1f))
         }
+
+        // ── Atributos con bonuses de equipo ──────────────────────────────
+        AttributesGrid(
+            effectiveStats = effectiveStats,
+            modifier       = Modifier.padding(bottom = 12.dp),
+        )
 
         // ── Grid de accesos ───────────────────────────────────────────────
         LazyVerticalGrid(
@@ -145,7 +170,12 @@ private fun DashboardContent(
 }
 
 @Composable
-private fun StatChip(label: String, value: String, modifier: Modifier = Modifier) {
+private fun StatChip(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    bonus: Int? = null,
+) {
     Card(
         colors   = CardDefaults.cardColors(containerColor = Crypt),
         modifier = modifier,
@@ -158,6 +188,119 @@ private fun StatChip(label: String, value: String, modifier: Modifier = Modifier
         ) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = Ash)
             Text(value, style = MaterialTheme.typography.titleSmall, color = Aurum)
+            if (bonus != null) {
+                val bonusColor = if (bonus > 0) androidx.compose.ui.graphics.Color(0xFF86EFAC)
+                                 else androidx.compose.ui.graphics.Color(0xFFFCA5A5)
+                Text(
+                    formatModifier(bonus),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = bonusColor,
+                    fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp),
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Grid de atributos con bonuses de equipo
+// ---------------------------------------------------------------------------
+
+private val attrRows = listOf(
+    Triple("FUE", BonusStat.Strength,     { s: EffectiveStats -> s.effectiveStrength() }),
+    Triple("DES", BonusStat.Dexterity,    { s: EffectiveStats -> s.effectiveDexterity() }),
+    Triple("CON", BonusStat.Constitution, { s: EffectiveStats -> s.effectiveConstitution() }),
+    Triple("INT", BonusStat.Intelligence, { s: EffectiveStats -> s.effectiveIntelligence() }),
+    Triple("SAB", BonusStat.Wisdom,       { s: EffectiveStats -> s.effectiveWisdom() }),
+    Triple("CAR", BonusStat.Charisma,     { s: EffectiveStats -> s.effectiveCharisma() }),
+)
+
+@Composable
+private fun AttributesGrid(
+    effectiveStats: EffectiveStats,
+    modifier: Modifier = Modifier,
+) {
+    val hasAnyBonus = effectiveStats.hasAnyBonus()
+
+    Column(modifier) {
+        if (hasAnyBonus) {
+            Text(
+                "✨ Atributos (con bonificadores de equipo)",
+                style = MaterialTheme.typography.labelSmall,
+                color = androidx.compose.ui.graphics.Color(0xFF86EFAC),
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        } else {
+            Text(
+                "Atributos",
+                style = MaterialTheme.typography.labelSmall,
+                color = Ash,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+
+        // 2 columnas x 3 filas
+        for (row in attrRows.chunked(2)) {
+            Row(
+                modifier              = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                for ((label, stat, effective) in row) {
+                    val score = effective(effectiveStats)
+                    val mod   = attributeModifier(score)
+                    val bonus = effectiveStats.attributeBonuses[stat]
+
+                    Card(
+                        colors   = CardDefaults.cardColors(
+                            containerColor = if (bonus != null && bonus != 0)
+                                androidx.compose.ui.graphics.Color(0xFF0D2010)
+                            else
+                                Crypt
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Column(
+                            modifier            = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Ash,
+                            )
+                            Text(
+                                "$score",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Aurum,
+                            )
+                            Text(
+                                formatModifier(mod),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = androidx.compose.ui.graphics.Color(0xFFD6D3D1),
+                            )
+                            // Bonus del equipo
+                            if (bonus != null && bonus != 0) {
+                                val bonusColor = if (bonus > 0)
+                                    androidx.compose.ui.graphics.Color(0xFF86EFAC)
+                                else
+                                    androidx.compose.ui.graphics.Color(0xFFFCA5A5)
+                                Text(
+                                    "equipo ${formatModifier(bonus)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = bonusColor,
+                                    fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp),
+                                )
+                            }
+                        }
+                    }
+                }
+                // Relleno si la fila tiene solo 1 elemento
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
     }
 }
