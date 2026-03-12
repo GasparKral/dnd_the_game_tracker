@@ -6,7 +6,10 @@ use super::NewItemData;
 use dioxus::prelude::*;
 
 #[component]
-pub fn ArmourForm(on_save: EventHandler<NewItemData>) -> Element {
+pub fn ArmourForm(
+    on_save: Callback<NewItemData>,
+    #[props(default)] save_label: Option<&'static str>,
+) -> Element {
     let mut name = use_signal(String::new);
     let mut description = use_signal(String::new);
     let mut weight = use_signal(String::new);
@@ -176,6 +179,7 @@ pub fn ArmourForm(on_save: EventHandler<NewItemData>) -> Element {
             }
 
             SaveButton {
+                label: save_label,
                 onclick: move |_| {
                     let mut extra = std::collections::HashMap::new();
                     extra.insert("armour_category".into(), armour_category.read().clone());

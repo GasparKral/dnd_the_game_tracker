@@ -2,6 +2,7 @@
 
 package io.github.gasparkral.dnd.infra
 
+import io.github.gasparkral.dnd.model.RollResult
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -50,8 +51,8 @@ sealed class ClientMessage {
     @Serializable
     @SerialName("roll_dice")
     data class RollDice(
-        val dice: String,
-        val result: UInt
+        @SerialName("roll_result")
+        val rollResult: RollResult
     ) : ClientMessage()
 
     @Serializable
@@ -121,8 +122,15 @@ sealed class ServerMessage {
         @Serializable(with = UuidSerializer::class)
         @SerialName("player_id")
         val playerId: Uuid,
-        val dice: String,
-        val result: UInt
+        @SerialName("roll_result")
+        val rollResult: RollResult
+    ) : ServerMessage()
+
+    @Serializable
+    @SerialName("dm_dice_roll")
+    data class DmDiceRoll(
+        @SerialName("roll_result")
+        val rollResult: RollResult
     ) : ServerMessage()
 
     @Serializable

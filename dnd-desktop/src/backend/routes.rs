@@ -3,11 +3,14 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use shared::api_types::character_draft::{
     CharacterDraft, CreateDraftRequest, DraftResponse, DraftStatusResponse, UpdateDraftRequest,
+};
+use shared::api_types::proficiencies::{
+    AddProficiencyRequest, ProficienciesResponse, UpdateProficiencyRequest,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -23,6 +26,8 @@ pub fn api_router() -> Router<SharedState> {
         .route("/character/draft", post(create_draft))
         .route("/character/draft/{id}", get(get_draft))
         .route("/character/draft/{id}", put(update_draft))
+        // --- Draft: retroceder paso ---
+        .route("/character/draft/{id}/step", patch(set_draft_step))
         // --- Personajes finalizados ---
         .route("/characters", get(get_all_characters))
         .route("/characters/{id}", get(get_character))
@@ -35,6 +40,9 @@ pub fn api_router() -> Router<SharedState> {
         .route("/characters/{id}/spells/{spell_id}", delete(remove_known_spell))
         .route("/characters/{id}/spells/{spell_id}/toggle_prepared", post(toggle_prepared_spell))
         .route("/characters/{id}/spell_slots", put(update_spell_slots))
+        // --- Proficiencias ---
+        .route("/characters/{id}/proficiencies", get(get_proficiencies).post(add_proficiency))
+        .route("/characters/{id}/proficiencies/{prof_id}", put(update_proficiency).delete(delete_proficiency))
         // --- Items del vault (dnd_type: item) ---
         .route("/vault/items", get(get_vault_items))
         // --- Campaña ---
@@ -48,6 +56,24 @@ pub fn api_router() -> Router<SharedState> {
         .route("/lore/{*path}", get(get_lore_entry))
         // --- Assets (imágenes del vault) ---
         .route("/assets/image/{*path}", get(get_vault_image))
+        // --- Tiradas (DM) ---
+        .route("/roll", post(dm_roll))
+}
+
+/// POST /api/roll
+/// El DM envía un `RollRequest`, el servidor ejecuta la tirada y hace broadcast
+/// del resultado a todos los jugadores conectados.
+async fn dm_roll(
+    State(state): State<SharedState>,
+    Json(request): Json<shared::models::dice::RollRequest>,
+) -> impl IntoResponse {
+    let result = request.execute();
+    state.0.ws_pool.broadcast(
+        crate::backend::models::messages::ServerMessage::DmDiceRoll {
+            roll_result: result.clone(),
+        },
+    );
+    (StatusCode::OK, Json(result))
 }
 
 // ===========================================================================
@@ -218,11 +244,21 @@ async fn apply_step(
         shared::api_types::character_draft::CreationStep::Race => {
             match &req.race_id {
                 Some(id) => {
-                    if state.0.registry.get_race(id).await.is_some() {
-                        draft.race_id = Some(id.clone());
-                        // Guardar los choices de raza
-                        for (k, v) in &req.choices {
-                            draft.choices.insert(k.clone(), v.clone());
+                    if let Some(catalog) = state.0.registry.get_race(id).await {
+                        // Validar required_choices
+                        for required_id in &catalog.required_choices {
+                            if !req.choices.contains_key(required_id) {
+                                errors.push(format!(
+                                    "El campo '{}' es obligatorio para esta raza.",
+                                    required_id
+                                ));
+                            }
+                        }
+                        if errors.is_empty() {
+                            draft.race_id = Some(id.clone());
+                            for (k, v) in &req.choices {
+                                draft.choices.insert(k.clone(), v.clone());
+                            }
                         }
                     } else {
                         errors.push(format!("Raza '{}' no encontrada en el catálogo.", id));
@@ -234,10 +270,21 @@ async fn apply_step(
 
         shared::api_types::character_draft::CreationStep::Class => match &req.class_id {
             Some(id) => {
-                if state.0.registry.get_class(id).await.is_some() {
-                    draft.class_id = Some(id.clone());
-                    for (k, v) in &req.choices {
-                        draft.choices.insert(k.clone(), v.clone());
+                if let Some(catalog) = state.0.registry.get_class(id).await {
+                    // Validar required_choices
+                    for required_id in &catalog.required_choices {
+                        if !req.choices.contains_key(required_id) {
+                            errors.push(format!(
+                                "El campo '{}' es obligatorio para esta clase.",
+                                required_id
+                            ));
+                        }
+                    }
+                    if errors.is_empty() {
+                        draft.class_id = Some(id.clone());
+                        for (k, v) in &req.choices {
+                            draft.choices.insert(k.clone(), v.clone());
+                        }
                     }
                 } else {
                     errors.push(format!("Clase '{}' no encontrada en el catálogo.", id));
@@ -263,10 +310,21 @@ async fn apply_step(
 
         shared::api_types::character_draft::CreationStep::Background => match &req.background_id {
             Some(id) => {
-                if state.0.registry.get_background(id).await.is_some() {
-                    draft.background_id = Some(id.clone());
-                    for (k, v) in &req.choices {
-                        draft.choices.insert(k.clone(), v.clone());
+                if let Some(catalog) = state.0.registry.get_background(id).await {
+                    // Validar required_choices
+                    for required_id in &catalog.required_choices {
+                        if !req.choices.contains_key(required_id) {
+                            errors.push(format!(
+                                "El campo '{}' es obligatorio para este trasfondo.",
+                                required_id
+                            ));
+                        }
+                    }
+                    if errors.is_empty() {
+                        draft.background_id = Some(id.clone());
+                        for (k, v) in &req.choices {
+                            draft.choices.insert(k.clone(), v.clone());
+                        }
                     }
                 } else {
                     errors.push(format!("Trasfondo '{}' no encontrado en el catálogo.", id));
@@ -276,10 +334,24 @@ async fn apply_step(
         },
 
         shared::api_types::character_draft::CreationStep::Feats => {
-            // Los dones son opcionales en este paso — se guardan tal cual
-            draft.feat_ids = req.feat_ids.clone();
-            for (k, v) in &req.choices {
-                draft.choices.insert(k.clone(), v.clone());
+            // Validar required_choices de cada dote seleccionado
+            for feat_id in &req.feat_ids {
+                if let Some(catalog) = state.0.registry.get_feat(feat_id).await {
+                    for required_id in &catalog.required_choices {
+                        if !req.choices.contains_key(required_id) {
+                            errors.push(format!(
+                                "El campo '{}' es obligatorio para el dote '{}'.",
+                                required_id, catalog.name
+                            ));
+                        }
+                    }
+                }
+            }
+            if errors.is_empty() {
+                draft.feat_ids = req.feat_ids.clone();
+                for (k, v) in &req.choices {
+                    draft.choices.insert(k.clone(), v.clone());
+                }
             }
         }
 
@@ -315,6 +387,56 @@ async fn apply_step(
     }
 
     errors
+}
+
+/// PATCH /api/character/draft/{id}/step
+/// Retrocede (o salta) el wizard a un paso concreto sin procesar datos.
+/// El cliente lo usa cuando el usuario pulsa "Atrás".
+async fn set_draft_step(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetDraftStepRequest>,
+) -> impl IntoResponse {
+    let mut drafts = state.0.drafts.write().await;
+    let Some(draft) = drafts.get_mut(&id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("Draft {} no encontrado", id) })),
+        ).into_response();
+    };
+    // Solo permitir retroceder (no saltar hacia delante arbitrariamente)
+    use shared::api_types::character_draft::CreationStep;
+    fn step_idx(s: &CreationStep) -> usize {
+        match s {
+            CreationStep::Name       => 0,
+            CreationStep::Race       => 1,
+            CreationStep::Class      => 2,
+            CreationStep::Attributes => 3,
+            CreationStep::Background => 4,
+            CreationStep::Feats      => 5,
+            CreationStep::Review     => 6,
+            CreationStep::Complete   => 7,
+        }
+    }
+    let current_idx = step_idx(&draft.step);
+    let target_idx  = step_idx(&req.step);
+    if target_idx >= current_idx {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Solo se puede retroceder con este endpoint" })),
+        ).into_response();
+    }
+    draft.step = req.step;
+    (
+        StatusCode::OK,
+        Json(DraftStatusResponse { draft: draft.clone(), is_complete: false }),
+    ).into_response()
+}
+
+/// Body para PATCH /character/draft/{id}/step
+#[derive(serde::Deserialize)]
+struct SetDraftStepRequest {
+    step: shared::api_types::character_draft::CreationStep,
 }
 
 // ===========================================================================
@@ -576,6 +698,52 @@ async fn get_vault_items(State(state): State<SharedState>) -> impl IntoResponse 
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// ===========================================================================
+// Proficiencias
+// ===========================================================================
+
+async fn get_proficiencies(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    match state.0.persistence.get_proficiencies(id).await {
+        Ok(proficiencies) => (StatusCode::OK, Json(ProficienciesResponse { proficiencies })).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn add_proficiency(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AddProficiencyRequest>,
+) -> impl IntoResponse {
+    match state.0.persistence.add_proficiency(id, req).await {
+        Ok(p) => (StatusCode::CREATED, Json(p)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn update_proficiency(
+    State(state): State<SharedState>,
+    Path((character_id, prof_id)): Path<(Uuid, String)>,
+    Json(req): Json<UpdateProficiencyRequest>,
+) -> impl IntoResponse {
+    match state.0.persistence.update_proficiency(character_id, &prof_id, req).await {
+        Ok(p) => (StatusCode::OK, Json(p)).into_response(),
+        Err(e) => inventory_error(e),
+    }
+}
+
+async fn delete_proficiency(
+    State(state): State<SharedState>,
+    Path((character_id, prof_id)): Path<(Uuid, String)>,
+) -> impl IntoResponse {
+    match state.0.persistence.delete_proficiency(character_id, &prof_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => inventory_error(e),
     }
 }
 

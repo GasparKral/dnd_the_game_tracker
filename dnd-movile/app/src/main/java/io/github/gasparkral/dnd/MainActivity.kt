@@ -104,10 +104,11 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .padding(innerPadding),
                                 draftId = route.draftId,
-                                onNavigateToInventory = { navController.navigate(Inventory(route.draftId)) },
-                                onNavigateToLore      = { navController.navigate(Lore) },
-                                onNavigateToCombat    = { navController.navigate(Combat(route.draftId)) },
-                                onNavigateToSpells    = { navController.navigate(Spells(route.draftId)) },
+                                onNavigateToInventory  = { navController.navigate(Inventory(route.draftId)) },
+                                onNavigateToLore       = { navController.navigate(Lore) },
+                                onNavigateToCombat     = { navController.navigate(Combat(route.draftId)) },
+                                onNavigateToSpells     = { navController.navigate(Spells(route.draftId)) },
+                                onNavigateToDiceRoller = { navController.navigate(DiceRollerRoute) },
                             )
                         }
 
@@ -145,6 +146,16 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // ── Dados ────────────────────────────────────────
+                        composable<DiceRollerRoute> {
+                            DiceRollerScreen(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding),
+                                onBack   = { navController.popBackStack() },
+                            )
+                        }
+
                         // ── Hechizos ───────────────────────────────────────
                         composable<Spells> { backStackEntry ->
                             val route = backStackEntry.toRoute<Spells>()
@@ -178,3 +189,4 @@ class MainActivity : ComponentActivity() {
 @Serializable data class Inventory(val draftId: String)
 @Serializable data class Combat(val draftId: String)
 @Serializable data class Spells(val draftId: String)
+@Serializable object DiceRollerRoute

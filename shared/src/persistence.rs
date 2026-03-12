@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::api_types::character_draft::AttributesDto;
 use crate::api_types::inventory::{Currency, InventoryItem};
+use crate::api_types::proficiencies::Proficiency;
 use crate::api_types::spells::{Spell, SpellSlotLevel};
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,14 @@ pub struct SavedCharacter {
     pub level: u32,
     pub current_hp: u32,
     pub max_hp: u32,
+    #[serde(default)]
+    pub temp_hp: u32,
     pub xp: u64,
+    /// IDs de habilidades con competencia o maestría.
+    /// Formato: "skill_id" para competencia, "skill_id:expertise" para maestría.
+    /// Ej: ["athletics", "stealth:expertise", "perception"]
+    #[serde(default)]
+    pub skill_proficiency_ids: Vec<String>,
     #[serde(default)]
     pub notes: String,
     #[serde(default)]
@@ -40,6 +48,9 @@ pub struct SavedCharacter {
     pub known_spells: Vec<Spell>,
     #[serde(default)]
     pub prepared_spells: Vec<Spell>,
+    /// Proficiencias completas (habilidades, salvaciones, armaduras, armas, herramientas, idiomas)
+    #[serde(default)]
+    pub proficiencies: Vec<Proficiency>,
     pub updated_at: String,
 }
 
@@ -79,13 +90,16 @@ impl SavedCharacter {
             level: 1,
             current_hp: base_hp,
             max_hp: base_hp,
+            temp_hp: 0,
             xp: 0,
+            skill_proficiency_ids: Vec::new(),
             notes: String::new(),
             inventory: Vec::new(),
             currency: Currency::default(),
             spell_slots: Vec::new(),
             known_spells: Vec::new(),
             prepared_spells: Vec::new(),
+            proficiencies: Vec::new(),
             updated_at: now,
         }
     }

@@ -1,4 +1,5 @@
 use shared::api_types::inventory::{Currency, InventoryItem, UpdateCurrencyRequest, UpdateItemRequest};
+use shared::api_types::proficiencies::{AddProficiencyRequest, Proficiency, ProficiencyLevel, UpdateProficiencyRequest};
 use shared::api_types::spells::{AddSpellRequest, Spell, SpellSlotLevel, SpellsResponse, UpdateSpellSlotsRequest};
 use shared::persistence::{CampaignFile, SavedCharacter};
 use std::path::{Path, PathBuf};
@@ -430,6 +431,68 @@ impl PersistenceManager {
         campaign.touch();
         self.write(campaign).await?;
         Ok(req.slots)
+    }
+
+    // ── Proficiencias ──────────────────────────────────────────────────────────
+
+    pub async fn get_proficiencies(&self, character_id: Uuid) -> Result<Vec<Proficiency>, PersistenceError> {
+        let lock = self.campaign.read().await;
+        let c = lock.as_ref().ok_or(PersistenceError::NoCampaign)?;
+        let ch = c.characters.get(&character_id).ok_or(PersistenceError::NotFound)?;
+        Ok(ch.proficiencies.clone())
+    }
+
+    pub async fn add_proficiency(&self, character_id: Uuid, req: AddProficiencyRequest) -> Result<Proficiency, PersistenceError> {
+        let mut lock = self.campaign.write().await;
+        let campaign = lock.as_mut().ok_or(PersistenceError::NoCampaign)?;
+        let ch = campaign.characters.get_mut(&character_id).ok_or(PersistenceError::NotFound)?;
+        // Generar id estable desde nombre+categoría (snake_case)
+        let id = format!("{}__{}", req.category.label().to_lowercase(),
+            req.name.to_lowercase().replace(' ', "_"));
+        let prof = Proficiency {
+            id,
+            name: req.name,
+            category: req.category,
+            level: req.level,
+            source: req.source,
+            notes: req.notes,
+        };
+        ch.proficiencies.push(prof.clone());
+        campaign.touch();
+        self.write(campaign).await?;
+        Ok(prof)
+    }
+
+    pub async fn update_proficiency(
+        &self,
+        character_id: Uuid,
+        prof_id: &str,
+        req: UpdateProficiencyRequest,
+    ) -> Result<Proficiency, PersistenceError> {
+        let mut lock = self.campaign.write().await;
+        let campaign = lock.as_mut().ok_or(PersistenceError::NoCampaign)?;
+        let ch = campaign.characters.get_mut(&character_id).ok_or(PersistenceError::NotFound)?;
+        let prof = ch.proficiencies.iter_mut()
+            .find(|p| p.id == prof_id)
+            .ok_or(PersistenceError::NotFound)?;
+        if let Some(l) = req.level  { prof.level  = l; }
+        if let Some(n) = req.notes  { prof.notes  = n; }
+        if let Some(s) = req.source { prof.source = s; }
+        let result = prof.clone();
+        campaign.touch();
+        self.write(campaign).await?;
+        Ok(result)
+    }
+
+    pub async fn delete_proficiency(&self, character_id: Uuid, prof_id: &str) -> Result<(), PersistenceError> {
+        let mut lock = self.campaign.write().await;
+        let campaign = lock.as_mut().ok_or(PersistenceError::NoCampaign)?;
+        let ch = campaign.characters.get_mut(&character_id).ok_or(PersistenceError::NotFound)?;
+        let before = ch.proficiencies.len();
+        ch.proficiencies.retain(|p| p.id != prof_id);
+        if ch.proficiencies.len() == before { return Err(PersistenceError::NotFound); }
+        campaign.touch();
+        self.write(campaign).await
     }
 
     pub async fn set_vault_path(&self, path: String) -> Result<(), PersistenceError> {

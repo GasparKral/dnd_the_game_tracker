@@ -99,16 +99,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
 async fn handle_client_message(msg: ClientMessage, player_id: Uuid, state: &Arc<AppState>) {
     match msg {
-        ClientMessage::RollDice { dice, result } => {
-            tracing::info!("Jugador {} tiró {}: {}", player_id, dice, result);
-            // Broadcast a todos para que vean la tirada
-            //state
-            //    .ws_pool
-            //    .broadcast(shared::messages::ServerMessage::DiceRoll {
-            //        player_id,
-            //        dice,
-            //        result,
-            //    });
+        ClientMessage::RollDice { roll_result } => {
+            tracing::info!(
+                "Jugador {} tiró {}: total={}",
+                player_id,
+                roll_result.request.label.as_deref().unwrap_or("sin etiqueta"),
+                roll_result.total,
+            );
+            state.ws_pool.broadcast(ServerMessage::DiceRoll { player_id, roll_result });
         }
         ClientMessage::RequestSync => {
             tracing::info!("Jugador {} solicita sincronización", player_id);

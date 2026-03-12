@@ -1,6 +1,7 @@
 // src/messages.rs
 
 use serde::{Deserialize, Serialize};
+use shared::models::dice::RollResult;
 use uuid::Uuid;
 
 /// Mensajes que llegan DESDE el móvil al servidor
@@ -12,8 +13,8 @@ pub enum ClientMessage {
         character_name: String,
     },
     RollDice {
-        dice: String, // "1d20", "2d6+3"...
-        result: u32,
+        /// Resultado completo: incluye dados, modo, modificador, valores individuales y total
+        roll_result: RollResult,
     },
     RequestSync,
     /// El jugador modificó su inventario — avisa al DM para refrescar
@@ -49,8 +50,11 @@ pub enum ServerMessage {
     // Tiradas
     DiceRoll {
         player_id: Uuid,
-        dice: String,
-        result: u32,
+        roll_result: RollResult,
+    },
+    /// Tirada realizada por el propio DM (broadcast al feed de todos)
+    DmDiceRoll {
+        roll_result: RollResult,
     },
     // DM → jugador específico
     PrivateMessage {

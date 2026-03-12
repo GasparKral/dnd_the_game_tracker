@@ -55,6 +55,42 @@ fn race_label(id: &str) -> &'static str {
     }
 }
 
+/// Bono de competencia según nivel (PHB 2024)
+fn proficiency_bonus(level: u32) -> i32 {
+    match level {
+        1..=4  => 2,
+        5..=8  => 3,
+        9..=12 => 4,
+        13..=16 => 5,
+        _ => 6,
+    }
+}
+
+/// Tabla de habilidades: (id, nombre en español, atributo base)
+/// Atributo: 0=FUE, 1=DES, 2=CON, 3=INT, 4=SAB, 5=CAR
+fn skill_table() -> &'static [(&'static str, &'static str, usize)] {
+    &[
+        ("athletics",       "Atletismo",      0), // FUE
+        ("acrobatics",      "Acrobacias",     1), // DES
+        ("sleight_of_hand", "Juego de Manos", 1), // DES
+        ("stealth",         "Sigilo",         1), // DES
+        ("arcana",          "Arcanos",        3), // INT
+        ("history",         "Historia",       3), // INT
+        ("investigation",   "Investigación",  3), // INT
+        ("nature",          "Naturaleza",     3), // INT
+        ("religion",        "Religión",       3), // INT
+        ("animal_handling", "Trato Animales", 4), // SAB
+        ("insight",         "Perspicacia",    4), // SAB
+        ("medicine",        "Medicina",       4), // SAB
+        ("perception",      "Percepción",     4), // SAB
+        ("survival",        "Supervivencia",  4), // SAB
+        ("deception",       "Engaño",         5), // CAR
+        ("intimidation",    "Intimidación",   5), // CAR
+        ("performance",     "Interpretación", 5), // CAR
+        ("persuasion",      "Persuasión",     5), // CAR
+    ]
+}
+
 fn hp_bar_color(current: u32, max: u32) -> &'static str {
     if max == 0 { return "#57534e"; }
     match (current as f32 / max as f32 * 10.0) as u32 {
@@ -253,6 +289,7 @@ fn CharacterDetail(
     let mut d_max_hp     = use_signal(|| character.max_hp);
     let mut d_xp         = use_signal(|| character.xp);
     let mut d_notes      = use_signal(|| character.notes.clone());
+    let mut d_temp_hp    = use_signal(|| character.temp_hp);
     let mut d_str        = use_signal(|| character.attributes.strength);
     let mut d_dex        = use_signal(|| character.attributes.dexterity);
     let mut d_con        = use_signal(|| character.attributes.constitution);
@@ -275,6 +312,7 @@ fn CharacterDetail(
                     d_level.set(ch.level);
                     d_current_hp.set(ch.current_hp);
                     d_max_hp.set(ch.max_hp);
+                    d_temp_hp.set(ch.temp_hp);
                     d_xp.set(ch.xp);
                     d_notes.set(ch.notes);
                     d_str.set(ch.attributes.strength);
@@ -298,6 +336,7 @@ fn CharacterDetail(
         u.level                   = *d_level.read();
         u.current_hp              = *d_current_hp.read();
         u.max_hp                  = *d_max_hp.read();
+        u.temp_hp                 = *d_temp_hp.read();
         u.xp                      = *d_xp.read();
         u.notes                   = d_notes.read().clone();
         u.attributes.strength     = *d_str.read();
@@ -321,6 +360,7 @@ fn CharacterDetail(
         d_level.set(char_cancel.level);
         d_current_hp.set(char_cancel.current_hp);
         d_max_hp.set(char_cancel.max_hp);
+        d_temp_hp.set(char_cancel.temp_hp);
         d_xp.set(char_cancel.xp);
         d_notes.set(char_cancel.notes.clone());
         d_str.set(char_cancel.attributes.strength);
@@ -436,11 +476,13 @@ fn CharacterDetail(
 
                     SectionDivider { label: "ESTADÍSTICAS" }
 
-                    div { style: "display:grid; grid-template-columns:repeat(3,1fr); gap:10px;",
+                    div { style: "display:grid; grid-template-columns:repeat(4,1fr); gap:10px;",
                         StatBox { label: "PG Actuales", editing: is_ed, display: d_current_hp.read().to_string(), accent: "#10b981",
                             children: rsx! { NumInput32 { value: d_current_hp, min: 0, max: 99999 } } }
                         StatBox { label: "PG Máximos",  editing: is_ed, display: d_max_hp.read().to_string(),     accent: "#78716c",
                             children: rsx! { NumInput32 { value: d_max_hp, min: 1, max: 99999 } } }
+                        StatBox { label: "PG Temporal", editing: is_ed, display: d_temp_hp.read().to_string(),    accent: "#818cf8",
+                            children: rsx! { NumInput32 { value: d_temp_hp, min: 0, max: 99999 } } }
                         StatBox { label: "Experiencia", editing: is_ed, display: d_xp.read().to_string(),          accent: "#f59e0b",
                             children: rsx! { NumInput64 { value: d_xp } } }
                     }
@@ -465,6 +507,56 @@ fn CharacterDetail(
                         AttrWidget { name: "INT", value: d_int, editing: is_ed }
                         AttrWidget { name: "SAB", value: d_wis, editing: is_ed }
                         AttrWidget { name: "CAR", value: d_cha, editing: is_ed }
+                    }
+
+                    SectionDivider { label: "HABILIDADES" }
+
+                    {
+                        let attr_vals = [
+                            *d_str.read(), *d_dex.read(), *d_con.read(),
+                            *d_int.read(), *d_wis.read(), *d_cha.read(),
+                        ];
+                        let prof_bonus = proficiency_bonus(*d_level.read());
+                        let prof_ids = character.skill_proficiency_ids.clone();
+                        rsx! {
+                            div { style: "display:grid; grid-template-columns:1fr 1fr; gap:4px;",
+                                for (skill_id, skill_name, attr_idx) in skill_table() {
+                                    {
+                                        let base_mod = modifier(attr_vals[*attr_idx]);
+                                        let is_expert = prof_ids.iter()
+                                            .any(|id| id == &format!("{skill_id}:expertise"));
+                                        let is_prof = is_expert || prof_ids.iter()
+                                            .any(|id| id == skill_id);
+                                        let total = base_mod
+                                            + if is_expert { prof_bonus * 2 }
+                                              else if is_prof { prof_bonus }
+                                              else { 0 };
+                                        let total_str = fmt_mod(total);
+                                        let (icon, icon_col) = if is_expert {
+                                            ("★★", "#f59e0b")  // maestría
+                                        } else if is_prof {
+                                            ("★☆", "#78716c")  // competencia
+                                        } else {
+                                            ("☆☆", "#292524")  // sin competencia
+                                        };
+                                        let val_col = if total > 0 { "#10b981" }
+                                            else if total < 0 { "#ef4444" }
+                                            else { "#78716c" };
+                                        rsx! {
+                                            div {
+                                                style: "display:flex; align-items:center; gap:7px;
+                                                        padding:5px 10px; border-radius:8px;
+                                                        background:#111110; border:1px solid #1c1917;",
+                                                span { style: "font-size:0.7rem; color:{icon_col}; flex-shrink:0;", "{icon}" }
+                                                span { style: "font-size:0.72rem; color:#a8a29e; flex:1;", "{skill_name}" }
+                                                span { style: "font-size:0.8rem; font-weight:700; color:{val_col}; flex-shrink:0;",
+                                                    "{total_str}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     SectionDivider { label: "NOTAS" }

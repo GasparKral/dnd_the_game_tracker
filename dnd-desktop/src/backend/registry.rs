@@ -1,7 +1,4 @@
-use shared::{
-    api_types::catalog::{CatalogEntry, CatalogResponse, ChoiceSchema, SelectOption},
-    traits::{background::Background, class::Class, feat::Feat, race::Race},
-};
+use shared::api_types::catalog::CatalogResponse;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
@@ -199,6 +196,10 @@ impl Registry {
 
 // ---------------------------------------------------------------------------
 // Defaults PHB 2024 — poblamos el registro al arrancar
+//
+// La fuente de verdad de nombres, descripciones, choices y rasgos vive en
+// los métodos `catalog_entry()` de cada implementación (trait Race / Class /
+// Background / Feat). Aquí simplemente instanciamos y registramos.
 // ---------------------------------------------------------------------------
 
 use shared::models::defaults::backgrounds::{
@@ -226,605 +227,77 @@ use shared::models::defaults::feats::{
 use shared::models::defaults::races::{
     Dragonborn, Dwarf, Elf, Gnome, HalfElf, HalfOrc, Halfling, Human, Tiefling,
 };
+use shared::api_types::catalog::{CatalogEntry, ChoiceSchema, SelectOption};
+use shared::traits::{background::Background, class::Class, feat::Feat, race::Race};
+
+/// Macro interna: registra una raza delegando catalog_entry() a la implementación.
+macro_rules! race {
+    ($registry:expr, $imp:expr) => {{
+        let imp: Box<dyn Race + Send + Sync> = Box::new($imp);
+        let catalog = imp.catalog_entry();
+        $registry.register_race(RaceEntry { catalog, implementation: imp }).await;
+    }};
+}
+
+/// Macro interna: registra una clase delegando catalog_entry() a la implementación.
+macro_rules! class {
+    ($registry:expr, $imp:expr) => {{
+        let imp: Box<dyn Class + Send + Sync> = Box::new($imp);
+        let catalog = imp.catalog_entry();
+        $registry.register_class(ClassEntry { catalog, implementation: imp }).await;
+    }};
+}
+
+/// Macro interna: registra un trasfondo delegando catalog_entry() a la implementación.
+macro_rules! bg {
+    ($registry:expr, $imp:expr) => {{
+        let imp: Box<dyn Background + Send + Sync> = Box::new($imp);
+        let catalog = imp.catalog_entry();
+        $registry.register_background(BackgroundEntry { catalog, implementation: imp }).await;
+    }};
+}
 
 pub async fn register_phb_defaults(registry: &Registry) {
-    // --- Razas ---
-    registry
-        .register_race(RaceEntry {
-            catalog: CatalogEntry {
-                id: "human".into(),
-                name: "Humano".into(),
-                source: "PHB2024".into(),
-                description: Some(
-                    "Versátiles y ambiciosos, los humanos son la raza más extendida de los Reinos Olvidados.".into(),
-                ),
-                image_url: None,
-                choices: vec![],
-                traits_preview: vec![
-                    "Versátil".into(),
-                    "Talento héroe".into(),
-                ],
-            },
-            implementation: Box::new(Human),
-        })
-        .await;
+    // ── Razas ────────────────────────────────────────────────────────────────
+    race!(registry, Human);
+    race!(registry, Elf);
+    race!(registry, Dwarf);
+    race!(registry, Halfling);
+    race!(registry, Gnome);
+    race!(registry, HalfElf);
+    race!(registry, HalfOrc);
+    race!(registry, Tiefling);
+    race!(registry, Dragonborn);
 
-    registry
-        .register_race(RaceEntry {
-            catalog: CatalogEntry {
-                id: "elf".into(),
-                name: "Elfo".into(),
-                source: "PHB2024".into(),
-                description: Some(
-                    "Seres mágicos de gran belleza, los elfos viven miles de años y sienten profundamente la naturaleza.".into(),
-                ),
-                image_url: None,
-                choices: vec![ChoiceSchema::SingleSelect {
-                    id: "elf.lineage".into(),
-                    label: "Linaje élfico".into(),
-                    options: vec![
-                        SelectOption {
-                            id: "high_elf".into(),
-                            label: "Alto Elfo".into(),
-                            description: Some("Herencia arcana innata.".into()),
-                        },
-                        SelectOption {
-                            id: "wood_elf".into(),
-                            label: "Elfo del Bosque".into(),
-                            description: Some("Velocidad y sigilo aumentados.".into()),
-                        },
-                        SelectOption {
-                            id: "drow".into(),
-                            label: "Drow".into(),
-                            description: Some("Magia de las profundidades.".into()),
-                        },
-                    ],
-                }],
-                traits_preview: vec![
-                    "Visión en la Oscuridad".into(),
-                    "Sentidos Feéricos".into(),
-                    "Trance".into(),
-                    "Linaje Élfico".into(),
-                ],
-            },
-            implementation: Box::new(Elf),
-        })
-        .await;
+    // ── Clases ───────────────────────────────────────────────────────────────
+    class!(registry, Barbarian);
+    class!(registry, Bard);
+    class!(registry, Cleric);
+    class!(registry, Druid);
+    class!(registry, Fighter);
+    class!(registry, Monk);
+    class!(registry, Paladin);
+    class!(registry, Ranger);
+    class!(registry, Rogue);
+    class!(registry, Sorcerer);
+    class!(registry, Warlock);
+    class!(registry, Wizard);
 
-    registry
-        .register_race(RaceEntry {
-            catalog: CatalogEntry {
-                id: "dwarf".into(),
-                name: "Enano".into(),
-                source: "PHB2024".into(),
-                description: Some(
-                    "Resistentes y tenaces, los enanos son maestros artesanos que habitan en fortalezas montañosas.".into(),
-                ),
-                image_url: None,
-                choices: vec![ChoiceSchema::SingleSelect {
-                    id: "dwarf.lineage".into(),
-                    label: "Linaje enano".into(),
-                    options: vec![
-                        SelectOption {
-                            id: "hill_dwarf".into(),
-                            label: "Enano de las Colinas".into(),
-                            description: Some("Sabiduría y puntos de golpe adicionales.".into()),
-                        },
-                        SelectOption {
-                            id: "mountain_dwarf".into(),
-                            label: "Enano de la Montaña".into(),
-                            description: Some("Pericia con armaduras medias.".into()),
-                        },
-                    ],
-                }],
-                traits_preview: vec![
-                    "Visión en la Oscuridad".into(),
-                    "Resistencia Enana".into(),
-                    "Entrenamiento de Combate Enano".into(),
-                    "Velocidad de Herramienta".into(),
-                    "Solidez Pétrea".into(),
-                ],
-            },
-            implementation: Box::new(Dwarf),
-        })
-        .await;
+    // ── Trasfondos ───────────────────────────────────────────────────────────
+    bg!(registry, Acolyte);
+    bg!(registry, Artisan);
+    bg!(registry, Charlatan);
+    bg!(registry, Criminal);
+    bg!(registry, Scholar);
+    bg!(registry, Guide);
+    bg!(registry, Sailor);
+    bg!(registry, Noble);
+    bg!(registry, Soldier);
+    bg!(registry, Hermit);
 
-    // --- Clases ---
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "barbarian".into(), name: "Bárbaro".into(), source: "PHB2024".into(),
-            description: Some("Guerrero feroz que canaliza una rabia primaria para destrozar a sus enemigos.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "barbarian.primal_path".into(),
-                label: "Senda primaria".into(),
-                options: vec![
-                    SelectOption { id: "berserker".into(), label: "Berserker".into(), description: Some("Rabia y violencia sin límites.".into()) },
-                    SelectOption { id: "totem_warrior".into(), label: "Guerrero Totémico".into(), description: Some("Espíritu animal guía.".into()) },
-                    SelectOption { id: "world_tree".into(), label: "Árbol del Mundo".into(), description: Some("Conexión con la red de vida.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Rabia".into(), "Defensa Sin Armadura".into(), "Ataque Descuidado".into(), "Movimiento Rápido".into()],
-        },
-        implementation: Box::new(Barbarian),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "bard".into(), name: "Bardo".into(), source: "PHB2024".into(),
-            description: Some("Maestro de las artes y la magia, inspira a sus aliados con música y palabras.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "bard.college".into(),
-                label: "Colegio bardístico".into(),
-                options: vec![
-                    SelectOption { id: "lore".into(), label: "Colegio del Saber".into(), description: Some("Conocimiento y habilidades extra.".into()) },
-                    SelectOption { id: "valor".into(), label: "Colegio del Valor".into(), description: Some("Combate y armas marciales.".into()) },
-                    SelectOption { id: "glamour".into(), label: "Colegio del Glamour".into(), description: Some("Magia feérica y carisma.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Inspiración Bárdica".into(), "Conjuros".into(), "Competencias Variadas".into()],
-        },
-        implementation: Box::new(Bard),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "cleric".into(), name: "Clérigo".into(), source: "PHB2024".into(),
-            description: Some("Intermediario divino que canaliza el poder de su deidad para sanar y destruir.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "cleric.domain".into(),
-                label: "Dominio divino".into(),
-                options: vec![
-                    SelectOption { id: "life".into(), label: "Vida".into(), description: Some("Sanación y vitalidad.".into()) },
-                    SelectOption { id: "light".into(), label: "Luz".into(), description: Some("Fuego y revelación.".into()) },
-                    SelectOption { id: "war".into(), label: "Guerra".into(), description: Some("Combate y poder marcial.".into()) },
-                    SelectOption { id: "trickery".into(), label: "Engaño".into(), description: Some("Ilusión y duplicidad.".into()) },
-                    SelectOption { id: "nature".into(), label: "Naturaleza".into(), description: Some("Animales y mundo natural.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Conjuros".into(), "Canal de Divinidad".into(), "Intervención Divina".into()],
-        },
-        implementation: Box::new(Cleric),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "druid".into(), name: "Druida".into(), source: "PHB2024".into(),
-            description: Some("Guardián de la naturaleza que transforma su cuerpo y controla los elementos.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "druid.circle".into(),
-                label: "Círculo druídico".into(),
-                options: vec![
-                    SelectOption { id: "land".into(), label: "Círculo de la Tierra".into(), description: Some("Magia del terreno natural.".into()) },
-                    SelectOption { id: "moon".into(), label: "Círculo de la Luna".into(), description: Some("Formas bestiales poderosas.".into()) },
-                    SelectOption { id: "stars".into(), label: "Círculo de las Estrellas".into(), description: Some("Constelaciones y cosmos.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Forma Salvaje".into(), "Conjuros".into(), "Ritual Druídico".into()],
-        },
-        implementation: Box::new(Druid),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "fighter".into(), name: "Guerrero".into(), source: "PHB2024".into(),
-            description: Some("Maestro del combate que domina todo tipo de armas y armaduras.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "fighter.archetype".into(),
-                label: "Arquetipo marcial".into(),
-                options: vec![
-                    SelectOption { id: "champion".into(), label: "Campeón".into(), description: Some("Críticos más frecuentes y atletismo.".into()) },
-                    SelectOption { id: "battle_master".into(), label: "Maestro de Batalla".into(), description: Some("Maniobras de combate táctico.".into()) },
-                    SelectOption { id: "eldritch_knight".into(), label: "Caballero Sobrenatural".into(), description: Some("Conjuros de mago combinados.".into()) },
-                    SelectOption { id: "psi_warrior".into(), label: "Guerrero Psíquico".into(), description: Some("Poderes psiónico y telekinesis.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Estilo de Combate".into(), "Segundo Aliento".into(), "Oleada de Acción".into(), "Ataque Extra".into()],
-        },
-        implementation: Box::new(Fighter),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "monk".into(), name: "Monje".into(), source: "PHB2024".into(),
-            description: Some("Artista marcial que canaliza ki para realizar proezas sobrehumanas.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "monk.tradition".into(),
-                label: "Tradición monástica".into(),
-                options: vec![
-                    SelectOption { id: "open_hand".into(), label: "Mano Abierta".into(), description: Some("Maestría en combate desarmado.".into()) },
-                    SelectOption { id: "shadow".into(), label: "Sombra".into(), description: Some("Sigilo y magia oscura.".into()) },
-                    SelectOption { id: "four_elements".into(), label: "Cuatro Elementos".into(), description: Some("Control elemental con ki.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Defensa Sin Armadura".into(), "Artes Marciales".into(), "Ki".into(), "Movimiento Sin Obstáculos".into()],
-        },
-        implementation: Box::new(Monk),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "paladin".into(), name: "Paladín".into(), source: "PHB2024".into(),
-            description: Some("Guerrero sagrado que une fuerza marcial con poder divino bajo un juramento inviolable.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "paladin.oath".into(),
-                label: "Sagrado juramento".into(),
-                options: vec![
-                    SelectOption { id: "devotion".into(), label: "Devoción".into(), description: Some("Honor y justicia absoluta.".into()) },
-                    SelectOption { id: "ancients".into(), label: "Los Antiguos".into(), description: Some("Preservar la luz y la vida.".into()) },
-                    SelectOption { id: "vengeance".into(), label: "Venganza".into(), description: Some("Castigar a los malvados sin piedad.".into()) },
-                    SelectOption { id: "glory".into(), label: "Gloria".into(), description: Some("Hazañas épicas y fama.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Imposición de Manos".into(), "Estilo de Combate".into(), "Sentido Divino".into(), "Smite Divino".into()],
-        },
-        implementation: Box::new(Paladin),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "ranger".into(), name: "Explorador".into(), source: "PHB2024".into(),
-            description: Some("Rastreador salvaje que combina habilidades marciales con magia de la naturaleza.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "ranger.conclave".into(),
-                label: "Conclave de exploradores".into(),
-                options: vec![
-                    SelectOption { id: "hunter".into(), label:"Cazador".into(), description: Some("Especialista en eliminar amenazas concretas.".into()) },
-                    SelectOption { id: "beast_master".into(), label: "Maestro de Bestias".into(), description: Some("Compañero animal de combate.".into()) },
-                    SelectOption { id: "gloom_stalker".into(), label: "Acechador de las Sombras".into(), description: Some("Cazador en la oscuridad.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Enemigo Favorito".into(), "Explorador Natural".into(), "Conjuros".into(), "Ataque Extra".into()],
-        },
-        implementation: Box::new(Ranger),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "rogue".into(), name: "Pícaro".into(), source: "PHB2024".into(),
-            description: Some("Maestro del sigilo y la astucia que golpea cuando el enemigo menos lo espera.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "rogue.archetype".into(),
-                label: "Arquetipo pícaro".into(),
-                options: vec![
-                    SelectOption { id: "thief".into(), label: "Ladrón".into(), description: Some("Robo y uso de objetos mágicos.".into()) },
-                    SelectOption { id: "assassin".into(), label: "Asesino".into(), description: Some("Eliminar objetivos por sorpresa.".into()) },
-                    SelectOption { id: "arcane_trickster".into(), label: "Tramposo Arcano".into(), description: Some("Conjuros de ilusión y encantamiento.".into()) },
-                    SelectOption { id: "soulknife".into(), label: "Cuchilla Anímica".into(), description: Some("Hojas psíquicas y telepatía.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Ataque Furtivo".into(), "Jerga de Ladrones".into(), "Acción Astuta".into(), "Reflejos Esquivos".into()],
-        },
-        implementation: Box::new(Rogue),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "sorcerer".into(), name: "Hechicero".into(), source: "PHB2024".into(),
-            description: Some("Lanzador nato cuyo poder mágico emana de su linaje o un evento cósmico.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "sorcerer.origin".into(),
-                label: "Origen hechiceril".into(),
-                options: vec![
-                    SelectOption { id: "draconic".into(), label: "Linaje Dracónico".into(), description: Some("Sangre de dragón amplifica tu magia.".into()) },
-                    SelectOption { id: "wild_magic".into(), label: "Magia Salvaje".into(), description: Some("Oleadas de magia impredecible.".into()) },
-                    SelectOption { id: "divine_soul".into(), label: "Alma Divina".into(), description: Some("Herencia celestial o infernal.".into()) },
-                    SelectOption { id: "clockwork".into(), label: "Alma de Relojería".into(), description: Some("Orden cósmico y precision.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Conjuros".into(), "Puntos de Hechicería".into(), "Metamagia".into()],
-        },
-        implementation: Box::new(Sorcerer),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "warlock".into(), name: "Brujo".into(), source: "PHB2024".into(),
-            description: Some("Lanzador de pacto cuyo poder viene de un acuerdo con una entidad sobrenatural.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "warlock.patron".into(),
-                label: "Patrón sobrenatural".into(),
-                options: vec![
-                    SelectOption { id: "fiend".into(), label: "El Señor Infernal".into(), description: Some("Poder de los planos del mal.".into()) },
-                    SelectOption { id: "great_old_one".into(), label: "El Gran Antiguo".into(), description: Some("Entidad cósmica inescrutable.".into()) },
-                    SelectOption { id: "archfey".into(), label: "El Archihada".into(), description: Some("Señor feérico caprichoso.".into()) },
-                    SelectOption { id: "celestial".into(), label: "El Celestial".into(), description: Some("Ser de luz y bien absoluto.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Conjuros de Pacto".into(), "Invocaciones Sobrenaturales".into(), "Dádiva del Patrón".into()],
-        },
-        implementation: Box::new(Warlock),
-    }).await;
-
-    registry.register_class(ClassEntry {
-        catalog: CatalogEntry {
-            id: "wizard".into(), name: "Mago".into(), source: "PHB2024".into(),
-            description: Some("Erudito arcano que estudia los secretos del universo para dominar la magia.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "wizard.school".into(),
-                label: "Tradición arcana".into(),
-                options: vec![
-                    SelectOption { id: "evocation".into(), label: "Evocación".into(), description: Some("Conjuros de daño y energía.".into()) },
-                    SelectOption { id: "abjuration".into(), label: "Abjuración".into(), description: Some("Protección y contramagia.".into()) },
-                    SelectOption { id: "illusion".into(), label: "Ilusión".into(), description: Some("Engañar sentidos y percepción.".into()) },
-                    SelectOption { id: "necromancy".into(), label: "Nigromancia".into(), description: Some("Muerte y no-muertos.".into()) },
-                    SelectOption { id: "conjuration".into(), label: "Conjuración".into(), description: Some("Convocar criaturas y teletransportación.".into()) },
-                    SelectOption { id: "divination".into(), label: "Adivinación".into(), description: Some("Ver el pasado, presente y futuro.".into()) },
-                ],
-            }],
-            traits_preview: vec!["Recuperación Arcana".into(), "Libro de Conjuros".into(), "Preparar Conjuros".into()],
-        },
-        implementation: Box::new(Wizard),
-    }).await;
-
-    // --- Trasfondos ---
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "acolyte".into(), name: "Acólito".into(), source: "PHB2024".into(),
-            description: Some("Has dedicado tu vida al servicio de un templo.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Refugio de los Fieles".into(), "Conocimiento Religioso".into()],
-        },
-        implementation: Box::new(Acolyte),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "artisan".into(), name: "Artesano".into(), source: "PHB2024".into(),
-            description: Some("Miembro de un gremio artesanal con contactos en el mundo del comercio.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Membresía en Gremio".into(), "Conocimiento de Herramientas".into()],
-        },
-        implementation: Box::new(Artisan),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "charlatan".into(), name: "Charlatán".into(), source: "PHB2024".into(),
-            description: Some("Maestro del engaño y la suplantación de identidades.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Identidad Falsa".into(), "Engaño y Persuasión".into()],
-        },
-        implementation: Box::new(Charlatan),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "criminal".into(), name: "Criminal".into(), source: "PHB2024".into(),
-            description: Some("Experimentado en actividades ilegales con contactos en el bajo mundo.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Contacto Criminal".into(), "Sigilo y Juego de Manos".into()],
-        },
-        implementation: Box::new(Criminal),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "scholar".into(), name: "Erudito".into(), source: "PHB2024".into(),
-            description: Some("Estudioso que ha pasado años investigando en archivos y academias.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Investigador".into(), "Historia y Arcanos".into()],
-        },
-        implementation: Box::new(Scholar),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "guide".into(), name: "Guardabosques".into(), source: "PHB2024".into(),
-            description: Some("Explorador de tierras salvajes con profundo conocimiento de la naturaleza.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Viajero del Yermo".into(), "Supervivencia y Naturaleza".into()],
-        },
-        implementation: Box::new(Guide),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "sailor".into(), name: "Marinero".into(), source: "PHB2024".into(),
-            description: Some("Veterano del mar con experiencia navegando por mares y ríos.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Pasaje en Barco".into(), "Atletismo y Percepción".into()],
-        },
-        implementation: Box::new(Sailor),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "noble".into(), name: "Noble".into(), source: "PHB2024".into(),
-            description: Some("Criado en privilegio con influencia política y social.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Posición de Privilegio".into(), "Historia y Persuasión".into()],
-        },
-        implementation: Box::new(Noble),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "soldier".into(), name: "Soldado".into(), source: "PHB2024".into(),
-            description: Some("Veterano de campaña con entrenamiento militar y disciplina de hierro.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Rango Militar".into(), "Atletismo e Intimidación".into()],
-        },
-        implementation: Box::new(Soldier),
-    }).await;
-
-    registry.register_background(BackgroundEntry {
-        catalog: CatalogEntry {
-            id: "hermit".into(), name: "Ermitaño".into(), source: "PHB2024".into(),
-            description: Some("Viviste en reclusión, descubriendo verdades que pocos conocen.".into()),
-            image_url: None, choices: vec![],
-            traits_preview: vec!["Descubrimiento".into(), "Medicina y Religión".into()],
-        },
-        implementation: Box::new(Hermit),
-    }).await;
-
-    // --- Razas adicionales PHB 2024 ---
-
-    registry.register_race(RaceEntry {
-        catalog: CatalogEntry {
-            id: "halfling".into(),
-            name: "Mediano".into(),
-            source: "PHB2024".into(),
-            description: Some("Pequeños y afortunados, los medianos son notables por su suerte innata y su valentía sorprendente.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "halfling.lineage".into(),
-                label: "Linaje de mediano".into(),
-                options: vec![
-                    SelectOption { id: "lightfoot".into(), label: "Pies Ligeros".into(), description: Some("Esconderse tras criaturas mayores.".into()) },
-                    SelectOption { id: "stout".into(), label: "Robusto".into(), description: Some("Resistencia a veneno.".into()) },
-                ],
-            }],
-            traits_preview: vec![
-                "Suerte".into(),
-                "Valentía".into(),
-                "Agilidad Halfling".into(),
-                "Linaje de Mediano".into(),
-            ],
-        },
-        implementation: Box::new(Halfling),
-    }).await;
-
-    registry.register_race(RaceEntry {
-        catalog: CatalogEntry {
-            id: "gnome".into(),
-            name: "Gnomo".into(),
-            source: "PHB2024".into(),
-            description: Some("Inventivos e inteligentes, los gnomos poseen una curiosidad insaciable y resistencia innata a la magia.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "gnome.lineage".into(),
-                label: "Linaje gnómico".into(),
-                options: vec![
-                    SelectOption { id: "rock".into(), label: "Gnomo de las Rocas".into(), description: Some("Inventores con conocimiento de artilugios.".into()) },
-                    SelectOption { id: "forest".into(), label: "Gnomo Silvático".into(), description: Some("Ilusiones menores y hablar con animales pequeños.".into()) },
-                    SelectOption { id: "deep".into(), label: "Gnomo de las Profundidades".into(), description: Some("Camuflaje superior en entornos subterráneos.".into()) },
-                ],
-            }],
-            traits_preview: vec![
-                "Astucia Gnómica".into(),
-                "Visión en la Oscuridad".into(),
-                "Linaje Gnómico".into(),
-            ],
-        },
-        implementation: Box::new(Gnome),
-    }).await;
-
-    registry.register_race(RaceEntry {
-        catalog: CatalogEntry {
-            id: "tiefling".into(),
-            name: "Tiefling".into(),
-            source: "PHB2024".into(),
-            description: Some("Marcados por una herencia infernal, los tieflings poseen poderes oscuros y una apariencia que infunde recelo.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "tiefling.lineage".into(),
-                label: "Linaje infernal".into(),
-                options: vec![
-                    SelectOption { id: "asmodeus".into(), label: "Asmodeo".into(), description: Some("Llama Infernal y Oscuridad.".into()) },
-                    SelectOption { id: "zariel".into(), label: "Zariel".into(), description: Some("Fuego y fortaleza marcial.".into()) },
-                    SelectOption { id: "levistus".into(), label: "Levistus".into(), description: Some("Frío y escudo de hielo.".into()) },
-                    SelectOption { id: "glasya".into(), label: "Glasya".into(), description: Some("Engaño y magia de ilusión.".into()) },
-                ],
-            }],
-            traits_preview: vec![
-                "Visión en la Oscuridad".into(),
-                "Resistencia al Fuego".into(),
-                "Legado Infernal".into(),
-            ],
-        },
-        implementation: Box::new(Tiefling),
-    }).await;
-
-    registry.register_race(RaceEntry {
-        catalog: CatalogEntry {
-            id: "dragonborn".into(),
-            name: "Draconido".into(),
-            source: "PHB2024".into(),
-            description: Some("Orgullosos guerreros con sangre dracónica, dotados de un arma de aliento devastadora.".into()),
-            image_url: None,
-            choices: vec![ChoiceSchema::SingleSelect {
-                id: "dragonborn.lineage".into(),
-                label: "Linaje dracónico".into(),
-                options: vec![
-                    SelectOption { id: "black".into(), label: "Dragón Negro (Ácido)".into(), description: Some("Resistencia y aliento de ácido.".into()) },
-                    SelectOption { id: "blue".into(), label: "Dragón Azul (Relámpago)".into(), description: Some("Resistencia y aliento de relámpago.".into()) },
-                    SelectOption { id: "red".into(), label: "Dragón Rojo (Fuego)".into(), description: Some("Resistencia y aliento de fuego.".into()) },
-                    SelectOption { id: "white".into(), label: "Dragón Blanco (Frío)".into(), description: Some("Resistencia y aliento de frío.".into()) },
-                    SelectOption { id: "green".into(), label: "Dragón Verde (Veneno)".into(), description: Some("Resistencia y aliento de veneno.".into()) },
-                    SelectOption { id: "gold".into(), label: "Dragón Dorado (Fuego)".into(), description: Some("Aliento de fuego o gas debilitante.".into()) },
-                    SelectOption { id: "silver".into(), label: "Dragón Plateado (Frío)".into(), description: Some("Aliento de frío o gas paralizante.".into()) },
-                ],
-            }],
-            traits_preview: vec![
-                "Arma de Aliento".into(),
-                "Resistencia Dracónica".into(),
-                "Instinto Dracónico".into(),
-            ],
-        },
-        implementation: Box::new(Dragonborn),
-    }).await;
-
-    registry.register_race(RaceEntry {
-        catalog: CatalogEntry {
-            id: "half_elf".into(),
-            name: "Semielfo".into(),
-            source: "PHB2024".into(),
-            description: Some("Con lo mejor de dos mundos, los semielfos combinan la adaptabilidad humana con la gracia feérica.".into()),
-            image_url: None,
-            choices: vec![
-                ChoiceSchema::SingleSelect {
-                    id: "half_elf.elven_heritage".into(),
-                    label: "Herencia élfica".into(),
-                    options: vec![
-                        SelectOption { id: "trance".into(), label: "Trance".into(), description: Some("Solo necesitas 4 horas de meditación.".into()) },
-                        SelectOption { id: "elven_lineage".into(), label: "Linaje Élfico".into(), description: Some("Conjuros innatos de elfo.".into()) },
-                        SelectOption { id: "mask_of_the_wild".into(), label: "Máscara de lo Salvaje".into(), description: Some("Esconderse en terreno natural.".into()) },
-                    ],
-                },
-            ],
-            traits_preview: vec![
-                "Visión en la Oscuridad".into(),
-                "Sentidos Feéricos".into(),
-                "Herencia Humana".into(),
-                "Herencia Élfica".into(),
-            ],
-        },
-        implementation: Box::new(HalfElf),
-    }).await;
-
-    registry.register_race(RaceEntry {
-        catalog: CatalogEntry {
-            id: "half_orc".into(),
-            name: "Semiorco".into(),
-            source: "PHB2024".into(),
-            description: Some("Feroces y resistentes, los semiorcos poseen una tenacidad sobrenatural que les permite sobrevivir lo insoportable.".into()),
-            image_url: None,
-            choices: vec![],
-            traits_preview: vec![
-                "Visión en la Oscuridad".into(),
-                "Resistencia".into(),
-                "Feroz".into(),
-                "Ataques Implacables".into(),
-            ],
-        },
-        implementation: Box::new(HalfOrc),
-    }).await;
-
-    // --- Dotes PHB 2024 ---
+    // ── Dotes PHB 2024 ───────────────────────────────────────────────────────
+    // Los dotes no tienen un trait análogo con catalog_entry(), así que
+    // se construyen explícitamente aquí. Están agrupados por categoría.
 
     // Combate
     let combat_feats: Vec<FeatEntry> = vec![
@@ -832,8 +305,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "alert".into(), name: "Alerta".into(), source: "PHB2024".into(),
                 description: Some("+5 a iniciativa, no puedes ser sorprendido, las criaturas ocultas no tienen ventaja al atacarte.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+5 Iniciativa".into(), "Inmune a Sorpresa".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Alert),
         },
@@ -841,8 +316,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "charger".into(), name: "Cargador".into(), source: "PHB2024".into(),
                 description: Some("Tras cargar 10ft en línea recta, ataque adicional con +1d8 de daño o empuja 10ft.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Ataque de Carga".into(), "Empuje de Carga".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Charger),
         },
@@ -850,8 +327,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "crossbow_expert".into(), name: "Experto en Ballesta".into(), source: "PHB2024".into(),
                 description: Some("Ignorar recarga, disparar cuerpo a cuerpo sin desventaja, ataque adicional con ballesta de mano.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Sin Recarga".into(), "Ataque Adicional".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(CrossbowExpert),
         },
@@ -859,8 +338,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "defensive_duelist".into(), name: "Duelista Defensivo".into(), source: "PHB2024".into(),
                 description: Some("Req: Des 13. Reacción: +bono prof a CA vs un ataque cuerpo a cuerpo con arma de finura.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Des 13".into(), "Reacción Defensiva".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(DefensiveDuelist),
         },
@@ -868,8 +349,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "dual_wielder".into(), name: "Luchador con Dos Armas".into(), source: "PHB2024".into(),
                 description: Some("+1 CA con dos armas, usar armas no ligeras de una mano, desenvainar dos armas a la vez.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 CA".into(), "Armas No Ligeras".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(DualWielder),
         },
@@ -877,8 +360,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "great_weapon_master".into(), name: "Gran Maestro de Armas".into(), source: "PHB2024".into(),
                 description: Some("Ataque adicional tras derribo o crítico. Opción: -5 ataque / +10 daño con armas pesadas.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Ataque Extra".into(), "-5/+10 Pesadas".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(GreatWeaponMaster),
         },
@@ -886,8 +371,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "grappler".into(), name: "Luchador".into(), source: "PHB2024".into(),
                 description: Some("Req: Fue 13. Ventaja en ataques vs criatura agarrada, puedes inmovilizarla.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Fue 13".into(), "Ventaja vs Agarrado".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Grappler),
         },
@@ -895,8 +382,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "mage_slayer".into(), name: "Cazador de Magos".into(), source: "PHB2024".into(),
                 description: Some("Reacción para atacar a lanzadores adyacentes. Desventaja en concentración para criaturas que atacas.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Reacción Antimagia".into(), "Rompe Concentración".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(MageSlayer),
         },
@@ -904,8 +393,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "mounted_combatant".into(), name: "Combatiente Montado".into(), source: "PHB2024".into(),
                 description: Some("Ventaja vs criaturas menores que la montura, redirigir ataques a la montura.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Ventaja Montado".into(), "Proteger Montura".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(MountedCombatant),
         },
@@ -913,8 +404,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "polearm_master".into(), name: "Maestro de Armas de Asta".into(), source: "PHB2024".into(),
                 description: Some("Ataque adicional con el extremo opuesto (1d4). Reacción al entrar criaturas en tu alcance.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Ataque de Cola".into(), "Guardián de Alcance".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(PolearmMaster),
         },
@@ -922,8 +415,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "savage_attacker".into(), name: "Atacante Salvaje".into(), source: "PHB2024".into(),
                 description: Some("Una vez por turno con arma cuerpo a cuerpo: tirar dados de daño dos veces, usar el mayor.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Doble Tirada de Daño".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(SavageAttacker),
         },
@@ -931,8 +426,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "sentinel".into(), name: "Centinela".into(), source: "PHB2024".into(),
                 description: Some("Ataques de oportunidad reducen velocidad a 0. Atacar a criaturas que golpean a otros adyacentes.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Velocidad a 0".into(), "Guardián".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Sentinel),
         },
@@ -940,8 +437,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "sharpshooter".into(), name: "Tirador Certero".into(), source: "PHB2024".into(),
                 description: Some("Sin desventaja a larga distancia, ignorar cobertura media/3-4, opción -5/+10 a distancia.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Larga Distancia".into(), "-5/+10 Ranged".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Sharpshooter),
         },
@@ -949,8 +448,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "shield_master".into(), name: "Maestro de Escudo".into(), source: "PHB2024".into(),
                 description: Some("Empujar con escudo como acción adicional, añadir CA de escudo a salvaciones Des.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Empuje de Escudo".into(), "Bonus Salvación Des".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(ShieldMaster),
         },
@@ -958,19 +459,22 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "spell_sniper".into(), name: "Francotirador de Conjuros".into(), source: "PHB2024".into(),
                 description: Some("Doblar alcance de conjuros con ataque, ignorar cobertura, aprender un truco de ataque.".into()),
-                image_url: None, choices: vec![ChoiceSchema::SingleSelect {
+                lore: None, image_url: None,
+                choices: vec![ChoiceSchema::SingleSelect {
                     id: "spell_sniper.cantrip_class".into(),
                     label: "Clase para el truco de ataque".into(),
                     options: vec![
-                        SelectOption { id: "bard".into(), label: "Bardo".into(), description: None },
-                        SelectOption { id: "cleric".into(), label: "Clérigo".into(), description: None },
-                        SelectOption { id: "druid".into(), label: "Druida".into(), description: None },
-                        SelectOption { id: "sorcerer".into(), label: "Hechicero".into(), description: None },
-                        SelectOption { id: "warlock".into(), label: "Brujo".into(), description: None },
-                        SelectOption { id: "wizard".into(), label: "Mago".into(), description: None },
+                        SelectOption::bare("bard",     "Bardo"),
+                        SelectOption::bare("cleric",   "Clérigo"),
+                        SelectOption::bare("druid",    "Druida"),
+                        SelectOption::bare("sorcerer", "Hechicero"),
+                        SelectOption::bare("warlock",  "Brujo"),
+                        SelectOption::bare("wizard",   "Mago"),
                     ],
                 }],
+                required_choices: vec!["spell_sniper.cantrip_class".into()],
                 traits_preview: vec!["Alcance Doble".into(), "Ignorar Cobertura".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(SpellSniper),
         },
@@ -978,8 +482,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "tavern_brawler".into(), name: "Peleador de Taberna".into(), source: "PHB2024".into(),
                 description: Some("Golpes desarmados 1d4, objetos improvisados. Acción adicional para agarrar tras golpe.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Puño 1d4".into(), "Objetos Improvisados".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(TavernBrawler),
         },
@@ -987,8 +493,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "war_caster".into(), name: "Lanzador de Guerra".into(), source: "PHB2024".into(),
                 description: Some("Req: lanzar conjuros. Ventaja en concentración, componentes somáticos ocupado, conjuro como AO.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: conjuros".into(), "Concentración Estable".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(WarCaster),
         },
@@ -996,8 +504,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "weapon_master".into(), name: "Maestro de Armas".into(), source: "PHB2024".into(),
                 description: Some("+1 Fue o Des (máx 20), proficiencia en 4 armas a elegir.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Fue/Des".into(), "4 Proficiencias".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(WeaponMaster),
         },
@@ -1010,8 +520,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "actor".into(), name: "Actor".into(), source: "PHB2024".into(),
                 description: Some("+1 Car (máx 20), ventaja al suplantar identidades, imitar voces de criaturas.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Carisma".into(), "Suplantación".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Actor),
         },
@@ -1019,8 +531,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "athlete".into(), name: "Atleta".into(), source: "PHB2024".into(),
                 description: Some("+1 Fue o Des (máx 20), levantarse cuesta solo 5ft, trepar sin penalización.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Fue/Des".into(), "Trepar".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Athlete),
         },
@@ -1028,8 +542,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "dungeon_delver".into(), name: "Explorador de Mazmorras".into(), source: "PHB2024".into(),
                 description: Some("Ventaja en detectar puertas secretas y trampas. Resistencia a daño de trampas.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Detectar Trampas".into(), "Resistencia Trampas".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(DungeonDelver),
         },
@@ -1037,8 +553,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "durable".into(), name: "Resistente".into(), source: "PHB2024".into(),
                 description: Some("+1 Con (máx 20), en descanso corto recuperar mínimo 2×mod.Con con dados de golpe.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Constitución".into(), "Dados de Golpe Mejorados".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Durable),
         },
@@ -1046,8 +564,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "heavily_armored".into(), name: "Armadura Pesada".into(), source: "PHB2024".into(),
                 description: Some("Req: prof armadura media. +1 Fue (máx 20), proficiencia con armaduras pesadas.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Armadura Media".into(), "Prof. Armadura Pesada".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(HeavilyArmored),
         },
@@ -1055,8 +575,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "heavy_armor_master".into(), name: "Maestro de Armadura Pesada".into(), source: "PHB2024".into(),
                 description: Some("Req: prof armadura pesada. +1 Fue, reducir daño no mágico en 3 con armadura pesada.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Armadura Pesada".into(), "Reducción de Daño 3".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(HeavyArmorMaster),
         },
@@ -1064,8 +586,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "inspiring_leader".into(), name: "Líder Inspirador".into(), source: "PHB2024".into(),
                 description: Some("Req: Car 13. Discurso 10min: hasta 6 criaturas ganan PG temp = nivel + mod Car.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Car 13".into(), "PG Temporales al Grupo".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(InspiringLeader),
         },
@@ -1073,8 +597,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "keen_mind".into(), name: "Mente Aguda".into(), source: "PHB2024".into(),
                 description: Some("+1 Int (máx 20), conocer siempre norte/hora/días, recordar todo lo visto en un mes.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Inteligencia".into(), "Memoria Perfecta".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(KeenMind),
         },
@@ -1082,8 +608,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "lightly_armored".into(), name: "Armadura Ligera".into(), source: "PHB2024".into(),
                 description: Some("+1 Fue o Des (máx 20), proficiencia con armaduras ligeras.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Fue/Des".into(), "Prof. Armadura Ligera".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(LightlyArmored),
         },
@@ -1091,8 +619,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "lucky".into(), name: "Afortunado".into(), source: "PHB2024".into(),
                 description: Some("3 puntos de suerte/día: tirar d20 extra en ataques, pruebas o salvaciones.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["3 Puntos de Suerte".into(), "Relanzar Tiradas".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Lucky),
         },
@@ -1100,8 +630,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "martial_adept".into(), name: "Adepto Marcial".into(), source: "PHB2024".into(),
                 description: Some("2 maniobras de Maestro de Batalla y 1 dado de superioridad d6.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["2 Maniobras".into(), "Dado Superioridad d6".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(MartialAdept),
         },
@@ -1109,8 +641,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "medium_armor_master".into(), name: "Maestro de Armadura Media".into(), source: "PHB2024".into(),
                 description: Some("Req: prof armadura media. Sin desventaja en Sigilo, Des máx +3 a CA.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Armadura Media".into(), "Des +3 CA".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(MediumArmorMaster),
         },
@@ -1118,8 +652,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "mobile".into(), name: "Ágil".into(), source: "PHB2024".into(),
                 description: Some("+10ft velocidad, sin terreno difícil al cargar, no provocar AO vs criaturas atacadas.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+10ft Velocidad".into(), "Sin AO".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Mobile),
         },
@@ -1127,8 +663,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "moderately_armored".into(), name: "Armadura Intermedia".into(), source: "PHB2024".into(),
                 description: Some("Req: prof armadura ligera. +1 Fue o Des (máx 20), prof con armadura media y escudo.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Armadura Ligera".into(), "Prof. Armadura Media + Escudo".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(ModeratelyArmored),
         },
@@ -1136,8 +674,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "observant".into(), name: "Observador".into(), source: "PHB2024".into(),
                 description: Some("+1 Int o Sab (máx 20), leer labios, +5 pasivo Percepción e Investigación.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+1 Int/Sab".into(), "+5 Percepción/Investigación".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Observant),
         },
@@ -1145,20 +685,22 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "resilient".into(), name: "Resistencia".into(), source: "PHB2024".into(),
                 description: Some("Elegir atributo: +1 (máx 20) y proficiencia en salvaciones de ese atributo.".into()),
-                image_url: None,
+                lore: None, image_url: None,
                 choices: vec![ChoiceSchema::SingleSelect {
                     id: "resilient.ability".into(),
                     label: "Atributo para salvación".into(),
                     options: vec![
-                        SelectOption { id: "str".into(), label: "Fuerza".into(), description: None },
-                        SelectOption { id: "dex".into(), label: "Destreza".into(), description: None },
-                        SelectOption { id: "con".into(), label: "Constitución".into(), description: None },
-                        SelectOption { id: "int".into(), label: "Inteligencia".into(), description: None },
-                        SelectOption { id: "wis".into(), label: "Sabiduría".into(), description: None },
-                        SelectOption { id: "cha".into(), label: "Carisma".into(), description: None },
+                        SelectOption::bare("str", "Fuerza"),
+                        SelectOption::bare("dex", "Destreza"),
+                        SelectOption::bare("con", "Constitución"),
+                        SelectOption::bare("int", "Inteligencia"),
+                        SelectOption::bare("wis", "Sabiduría"),
+                        SelectOption::bare("cha", "Carisma"),
                     ],
                 }],
+                required_choices: vec!["resilient.ability".into()],
                 traits_preview: vec!["+1 Atributo".into(), "Nueva Salvación".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Resilient),
         },
@@ -1166,8 +708,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "skilled".into(), name: "Hábil".into(), source: "PHB2024".into(),
                 description: Some("Proficiencia en 3 habilidades o herramientas a elegir.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["3 Proficiencias".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Skilled),
         },
@@ -1175,8 +719,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "skulker".into(), name: "Merodeador".into(), source: "PHB2024".into(),
                 description: Some("Req: Des 13. Esconderse en luz tenue, fallar ataque no revela posición.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Des 13".into(), "Sigilo Mejorado".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Skulker),
         },
@@ -1184,8 +730,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "tough".into(), name: "Fornido".into(), source: "PHB2024".into(),
                 description: Some("+2 PG máximos por nivel (actual y futuro).".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["+2 PG por Nivel".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Tough),
         },
@@ -1198,19 +746,21 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "elemental_adept".into(), name: "Adepto Elemental".into(), source: "PHB2024".into(),
                 description: Some("Req: conjuros. Ignorar resistencia a un tipo de daño, tratar 1s en dados como 2s.".into()),
-                image_url: None,
+                lore: None, image_url: None,
                 choices: vec![ChoiceSchema::SingleSelect {
                     id: "elemental_adept.damage_type".into(),
                     label: "Tipo de daño elemental".into(),
                     options: vec![
-                        SelectOption { id: "acid".into(), label: "Ácido".into(), description: None },
-                        SelectOption { id: "cold".into(), label: "Frío".into(), description: None },
-                        SelectOption { id: "fire".into(), label: "Fuego".into(), description: None },
-                        SelectOption { id: "lightning".into(), label: "Relámpago".into(), description: None },
-                        SelectOption { id: "thunder".into(), label: "Trueno".into(), description: None },
+                        SelectOption::bare("acid",      "Ácido"),
+                        SelectOption::bare("cold",      "Frío"),
+                        SelectOption::bare("fire",      "Fuego"),
+                        SelectOption::bare("lightning", "Relámpago"),
+                        SelectOption::bare("thunder",   "Trueno"),
                     ],
                 }],
+                required_choices: vec!["elemental_adept.damage_type".into()],
                 traits_preview: vec!["Req: conjuros".into(), "Ignorar Resistencia".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(ElementalAdept),
         },
@@ -1218,8 +768,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "healer".into(), name: "Sanador".into(), source: "PHB2024".into(),
                 description: Some("Usar botiquín gratis para estabilizar. Curar 1d6+4+DG PG una vez por criatura por descanso.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Estabilizar Gratis".into(), "Botiquín Mejorado".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(Healer),
         },
@@ -1227,20 +779,22 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "magic_initiate".into(), name: "Iniciado en la Magia".into(), source: "PHB2024".into(),
                 description: Some("Elegir clase: aprender 2 trucos y 1 conjuro de nivel 1. Lanzar el conjuro 1/día gratis.".into()),
-                image_url: None,
+                lore: None, image_url: None,
                 choices: vec![ChoiceSchema::SingleSelect {
                     id: "magic_initiate.class".into(),
                     label: "Clase de la que aprenderás".into(),
                     options: vec![
-                        SelectOption { id: "bard".into(), label: "Bardo".into(), description: None },
-                        SelectOption { id: "cleric".into(), label: "Clérigo".into(), description: None },
-                        SelectOption { id: "druid".into(), label: "Druida".into(), description: None },
-                        SelectOption { id: "sorcerer".into(), label: "Hechicero".into(), description: None },
-                        SelectOption { id: "warlock".into(), label: "Brujo".into(), description: None },
-                        SelectOption { id: "wizard".into(), label: "Mago".into(), description: None },
+                        SelectOption::bare("bard",     "Bardo"),
+                        SelectOption::bare("cleric",   "Clérigo"),
+                        SelectOption::bare("druid",    "Druida"),
+                        SelectOption::bare("sorcerer", "Hechicero"),
+                        SelectOption::bare("warlock",  "Brujo"),
+                        SelectOption::bare("wizard",   "Mago"),
                     ],
                 }],
+                required_choices: vec!["magic_initiate.class".into()],
                 traits_preview: vec!["2 Trucos".into(), "Conjuro Nivel 1 Gratis".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(MagicInitiate),
         },
@@ -1248,8 +802,10 @@ pub async fn register_phb_defaults(registry: &Registry) {
             catalog: CatalogEntry {
                 id: "ritual_caster".into(), name: "Lanzador de Rituales".into(), source: "PHB2024".into(),
                 description: Some("Req: Int o Sab 13. Libro con 2 rituales de nivel 1. Lanzarlos como ritual, copiar más.".into()),
-                image_url: None, choices: vec![],
+                lore: None, image_url: None, choices: vec![],
+                required_choices: vec![],
                 traits_preview: vec!["Req: Int/Sab 13".into(), "Libro de Rituales".into()],
+                traits_detail: vec![], speed_m: None, size: None,
             },
             implementation: Box::new(RitualCaster),
         },

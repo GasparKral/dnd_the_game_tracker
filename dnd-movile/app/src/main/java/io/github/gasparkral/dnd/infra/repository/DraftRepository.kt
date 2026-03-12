@@ -16,6 +16,8 @@ import io.github.gasparkral.dnd.model.InventoryResponse
 import io.github.gasparkral.dnd.model.SavedCharacter
 import io.github.gasparkral.dnd.model.UpdateCurrencyRequest
 import io.github.gasparkral.dnd.model.UpdateItemRequest
+import io.github.gasparkral.dnd.model.CreationStep
+import io.github.gasparkral.dnd.model.SetDraftStepRequest
 import io.github.gasparkral.dnd.model.UpdateDraftRequest
 import io.github.gasparkral.dnd.model.AddSpellRequest
 import io.github.gasparkral.dnd.model.Spell
@@ -97,6 +99,17 @@ class DraftRepository {
         HttpManager.put(
             endpoint = "/api/character/draft/${request.draftId}",
             body = request,
+        )
+
+    /**
+     * Sincroniza el step del wizard en el servidor sin procesar datos.
+     * Se usa cuando el usuario pulsa "Atrás" para que el servidor no quede
+     * desfasado con respecto al cliente.
+     */
+    suspend fun setDraftStep(draftId: String, step: CreationStep): HttpResult<DraftStatusResponse> =
+        HttpManager.patch(
+            endpoint = "/api/character/draft/$draftId/step",
+            body = SetDraftStepRequest(step),
         )
 
     // ── Hechizos ─────────────────────────────────────────────────────────────────────

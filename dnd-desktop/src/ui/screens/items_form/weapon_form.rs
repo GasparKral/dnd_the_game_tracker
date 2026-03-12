@@ -5,7 +5,10 @@ use super::NewItemData;
 use dioxus::prelude::*;
 
 #[component]
-pub fn WeaponForm(on_save: EventHandler<NewItemData>) -> Element {
+pub fn WeaponForm(
+    on_save: Callback<NewItemData>,
+    #[props(default)] save_label: Option<&'static str>,
+) -> Element {
     // Campos base
     let mut name = use_signal(String::new);
     let mut description = use_signal(String::new);
@@ -186,6 +189,7 @@ pub fn WeaponForm(on_save: EventHandler<NewItemData>) -> Element {
 
             // Botón guardar
             SaveButton {
+                label: save_label,
                 onclick: move |_| {
                     let mut extra = std::collections::HashMap::new();
                     let dmg = format!("{} {}", damage_dice.read(), damage_type.read());
@@ -235,8 +239,14 @@ pub fn FormField(label: &'static str, children: Element) -> Element {
     }
 }
 
+/// `label` permite personalizar el texto del botón.
+/// Si es `None` se usa el texto por defecto "💾 Guardar en vault".
 #[component]
-pub fn SaveButton(onclick: EventHandler<MouseEvent>) -> Element {
+pub fn SaveButton(
+    onclick: EventHandler<MouseEvent>,
+    #[props(default)] label: Option<&'static str>,
+) -> Element {
+    let btn_label = label.unwrap_or("💾 Guardar en vault");
     rsx! {
         div { style: "display:flex; justify-content:flex-end; padding-top:4px;",
             button {
@@ -244,7 +254,7 @@ pub fn SaveButton(onclick: EventHandler<MouseEvent>) -> Element {
                         border-radius:10px; cursor:pointer; border:1px solid #065f46;
                         background:#071a0e; color:#34d399;",
                 onclick: move |e| onclick.call(e),
-                "💾 Guardar en vault"
+                "{btn_label}"
             }
         }
     }

@@ -61,11 +61,21 @@ data class CreationUiState(
 
     val stepIndex: Int get() = CreationStep.entries.indexOf(currentStep).coerceAtLeast(0)
 
+    /** Devuelve true si todos los required_choices de una entry están respondidos. */
+    private fun CatalogEntry.requiredChoicesSatisfied(answers: Map<String, JsonElement>): Boolean =
+        requiredChoices.all { id -> answers.containsKey(id) }
+
     val canAdvance: Boolean get() = when (currentStep) {
         CreationStep.Name       -> localName.isNotBlank()
-        CreationStep.Race       -> selectedRaceId.isNotBlank()
-        CreationStep.Class      -> selectedClassId.isNotBlank()
-        CreationStep.Background -> selectedBackgroundId.isNotBlank()
+        CreationStep.Race       -> selectedRaceId.isNotBlank() &&
+            (races.find { it.id == selectedRaceId }?.requiredChoicesSatisfied(choices) ?: true)
+        CreationStep.Class      -> selectedClassId.isNotBlank() &&
+            (classes.find { it.id == selectedClassId }?.requiredChoicesSatisfied(choices) ?: true)
+        CreationStep.Background -> selectedBackgroundId.isNotBlank() &&
+            (backgrounds.find { it.id == selectedBackgroundId }?.requiredChoicesSatisfied(choices) ?: true)
+        CreationStep.Feats      -> selectedFeatIds.all { featId ->
+            feats.find { it.id == featId }?.requiredChoicesSatisfied(choices) ?: true
+        }
         CreationStep.Attributes -> attributes.pointBuyCost() <= 27
         else                    -> true
     }
@@ -165,11 +175,21 @@ class CharacterCreationViewModel(
 
     fun onNameChange(value: String) = _uiState.update { it.copy(localName = value) }
 
-    fun onRaceSelected(id: String) = _uiState.update { it.copy(selectedRaceId = id, choices = emptyMap()) }
+    fun onRaceSelected(id: String) = _uiState.update { s ->
+        // Eliminar solo los choices cuyo prefijo sea de otra raza ("race.", o el id anterior)
+        val clean = s.choices.filterKeys { k -> !k.startsWith("race.") && !s.races.any { r -> k.startsWith(r.id + ".") } }
+        s.copy(selectedRaceId = id, choices = clean)
+    }
 
-    fun onClassSelected(id: String) = _uiState.update { it.copy(selectedClassId = id, choices = emptyMap()) }
+    fun onClassSelected(id: String) = _uiState.update { s ->
+        val clean = s.choices.filterKeys { k -> !k.startsWith("class.") && !s.classes.any { c -> k.startsWith(c.id + ".") } }
+        s.copy(selectedClassId = id, choices = clean)
+    }
 
-    fun onBackgroundSelected(id: String) = _uiState.update { it.copy(selectedBackgroundId = id, choices = emptyMap()) }
+    fun onBackgroundSelected(id: String) = _uiState.update { s ->
+        val clean = s.choices.filterKeys { k -> !k.startsWith("bg.") && !s.backgrounds.any { b -> k.startsWith(b.id + ".") } }
+        s.copy(selectedBackgroundId = id, choices = clean)
+    }
 
     fun onChoiceAnswered(choiceId: String, value: JsonElement) =
         _uiState.update { it.copy(choices = it.choices + (choiceId to value)) }
@@ -216,14 +236,30 @@ class CharacterCreationViewModel(
         }
     }
 
-    // ── Retroceder paso ───────────────────────────────────────────────────────
+    // ── Retroceder paso ──────────────────────────────────────────────────
 
+    /**
+     * Retrocede un paso. Llama al servidor para sincronizar el step antes de
+     * actualizar la UI, evitando el desfáse que causaría `advance()` posterior.
+     * Devuelve false si ya estamos en el primer paso (señal para salir de la pantalla).
+     */
     fun back(): Boolean {
         val step = _uiState.value.currentStep
         if (step == CreationStep.Name) return false   // señal para salir de la pantalla
-        // Retroceso local — no notificamos al servidor, solo cambiamos el step localmente
+
         val prevStep = CreationStep.entries[CreationStep.entries.indexOf(step) - 1]
-        _uiState.update { it.copy(draft = it.draft.copy(step = prevStep), stepErrors = emptyList()) }
+        val draftId  = _uiState.value.draft.draftId ?: run {
+            // Sin draft en el servidor: retroceso solo local (wizard no empezado)
+            _uiState.update { it.copy(draft = it.draft.copy(step = prevStep), stepErrors = emptyList()) }
+            return true
+        }
+
+        viewModelScope.launch {
+            // Optimistic update: la UI retrocede inmediatamente
+            _uiState.update { it.copy(draft = it.draft.copy(step = prevStep), stepErrors = emptyList()) }
+            // Sincronizar con el servidor (fire-and-forget: si falla la UI ya retrocedió)
+            repo.setDraftStep(draftId, prevStep)
+        }
         return true
     }
 

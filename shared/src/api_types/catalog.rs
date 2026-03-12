@@ -98,17 +98,72 @@ pub struct CatalogEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
+    /// Descripción larga / lore (Markdown permitido)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lore: Option<String>,
+
     /// URL relativa a la imagen principal. Ej: "/api/assets/image/races/elf.png"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
 
-    /// Decisiones que el jugador debe tomar al elegir esta entrada
+    /// Decisiones que el jugador debe tomar al elegir esta entrada.
+    /// El cliente debe responder los marcados en `required_choices` antes de avanzar.
     #[serde(default)]
     pub choices: Vec<ChoiceSchema>,
+
+    /// IDs de los choices obligatorios (subset de `choices`).
+    #[serde(default)]
+    pub required_choices: Vec<String>,
 
     /// Lista de rasgos para mostrar en preview (solo nombres)
     #[serde(default)]
     pub traits_preview: Vec<String>,
+
+    /// Rasgos mecánicos detallados (nombre + descripción)
+    #[serde(default)]
+    pub traits_detail: Vec<TraitDetail>,
+
+    /// Velocidad base en metros
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_m: Option<u32>,
+
+    /// Tamaño ("Small", "Medium"...)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
+}
+
+/// Rasgo mecánico con nombre y descripción corta
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraitDetail {
+    pub name: String,
+    pub description: String,
+}
+
+impl TraitDetail {
+    pub fn new(name: impl Into<String>, desc: impl Into<String>) -> Self {
+        Self { name: name.into(), description: desc.into() }
+    }
+}
+
+impl SelectOption {
+    pub fn new(id: impl Into<String>, label: impl Into<String>, desc: impl Into<String>) -> Self {
+        Self { id: id.into(), label: label.into(), description: Some(desc.into()) }
+    }
+    pub fn bare(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self { id: id.into(), label: label.into(), description: None }
+    }
+}
+
+impl CatalogEntry {
+    pub fn minimal(id: impl Into<String>, name: impl Into<String>, source: impl Into<String>) -> Self {
+        Self {
+            id: id.into(), name: name.into(), source: source.into(),
+            description: None, lore: None, image_url: None,
+            choices: vec![], required_choices: vec![],
+            traits_preview: vec![], traits_detail: vec![],
+            speed_m: None, size: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

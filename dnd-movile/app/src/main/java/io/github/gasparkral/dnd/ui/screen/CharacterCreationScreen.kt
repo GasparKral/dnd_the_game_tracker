@@ -21,8 +21,10 @@ import io.github.gasparkral.dnd.model.AttributesDto
 import io.github.gasparkral.dnd.model.CatalogEntry
 import io.github.gasparkral.dnd.model.ChoiceSchema
 import io.github.gasparkral.dnd.model.CreationStep
+import io.github.gasparkral.dnd.model.TraitDetail
 import io.github.gasparkral.dnd.ui.theme.*
 import io.github.gasparkral.dnd.ui.viewmodel.CharacterCreationViewModel
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -126,7 +128,7 @@ private fun WizardContent(
                     selectedId = state.selectedRaceId,
                     choices = state.choices,
                     onEntrySelected = viewModel::onRaceSelected,
-                    onChoiceAnswered = { id, v -> viewModel.onChoiceAnswered(id, v) },
+                    onChoiceAnswered = viewModel::onChoiceAnswered,
                 )
                 CreationStep.Class -> StepCatalogPicker(
                     title = "Elige tu clase",
@@ -134,7 +136,7 @@ private fun WizardContent(
                     selectedId = state.selectedClassId,
                     choices = state.choices,
                     onEntrySelected = viewModel::onClassSelected,
-                    onChoiceAnswered = { id, v -> viewModel.onChoiceAnswered(id, v) },
+                    onChoiceAnswered = viewModel::onChoiceAnswered,
                 )
                 CreationStep.Background -> StepCatalogPicker(
                     title = "Elige tu trasfondo",
@@ -142,7 +144,7 @@ private fun WizardContent(
                     selectedId = state.selectedBackgroundId,
                     choices = state.choices,
                     onEntrySelected = viewModel::onBackgroundSelected,
-                    onChoiceAnswered = { id, v -> viewModel.onChoiceAnswered(id, v) },
+                    onChoiceAnswered = viewModel::onChoiceAnswered,
                 )
                 CreationStep.Attributes -> StepAttributes(
                     attributes = state.attributes,
@@ -238,7 +240,7 @@ private fun StepCatalogPicker(
     selectedId: String,
     choices: Map<String, kotlinx.serialization.json.JsonElement>,
     onEntrySelected: (String) -> Unit,
-    onChoiceAnswered: (String, JsonPrimitive) -> Unit,
+    onChoiceAnswered: (String, kotlinx.serialization.json.JsonElement) -> Unit,
 ) {
     Column {
         Text(title, style = MaterialTheme.typography.titleMedium)
@@ -284,21 +286,36 @@ private fun StepCatalogPicker(
                         }
                     }
 
-                    // Descripción y traits al expandirse la selección
+                    // Detalle expandido al seleccionar
                     if (isSelected) {
                         entry.description?.let { desc ->
                             Spacer(Modifier.height(6.dp))
                             Text(desc, style = MaterialTheme.typography.bodySmall, color = Parchment)
                         }
+                        // Rasgos rápidos (preview)
                         if (entry.traitsPreview.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(entry.traitsPreview) { trait ->
+                                    SurfaceChip(trait)
+                                }
+                            }
+                        }
+                        // Rasgos detallados (traitsDetail)
+                        if (entry.traitsDetail.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            TraitsDetailPanel(entry.traitsDetail)
+                        }
+                        // Lore
+                        entry.lore?.let { lore ->
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                "Rasgos: ${entry.traitsPreview.joinToString(", ")}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Aurum,
+                                lore,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Ash,
                             )
                         }
-                        // Renderizar choices dinámicos de la entrada
+                        // Choices dinámicos
                         entry.choices.forEach { schema ->
                             Spacer(Modifier.height(10.dp))
                             ChoiceRenderer(
@@ -315,6 +332,50 @@ private fun StepCatalogPicker(
 }
 
 // ---------------------------------------------------------------------------
+// Panel de rasgos detallados (traitsDetail)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun TraitsDetailPanel(traits: List<TraitDetail>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        traits.forEach { trait ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp)
+            ) {
+                Text(
+                    text = trait.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Aurum,
+                )
+                Text(
+                    text = trait.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Parchment,
+                )
+            }
+        }
+    }
+}
+
+// Chip de texto simple para traits_preview
+@Composable
+private fun SurfaceChip(text: String) {
+    Surface(
+        color = Gold.copy(alpha = 0.12f),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = Aurum,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Renderizador genérico de ChoiceSchema
 // ---------------------------------------------------------------------------
 
@@ -322,7 +383,7 @@ private fun StepCatalogPicker(
 private fun ChoiceRenderer(
     schema: ChoiceSchema,
     currentValue: kotlinx.serialization.json.JsonElement?,
-    onAnswer: (JsonPrimitive) -> Unit,
+    onAnswer: (kotlinx.serialization.json.JsonElement) -> Unit,
 ) {
     when (schema) {
         is ChoiceSchema.SingleSelect -> {
@@ -370,15 +431,92 @@ private fun ChoiceRenderer(
             )
         }
 
-        // MultiSelect y NumberInput — versión básica, extensible
-        is ChoiceSchema.MultiSelect -> {
-            Text(schema.label, style = MaterialTheme.typography.labelMedium, color = Gold)
-            Text("Elige entre ${schema.min} y ${schema.max}", style = MaterialTheme.typography.labelSmall, color = Ash)
-            // TODO: implementar multi-check cuando la API exponga opciones con este tipo
-        }
+        // MultiSelect — checkboxes con control de mínimo y máximo
+        is ChoiceSchema.MultiSelect -> MultiSelectChoice(
+            schema = schema,
+            currentValue = currentValue,
+            onAnswer = onAnswer,
+        )
 
         is ChoiceSchema.PointBuy, is ChoiceSchema.NumberInput -> {
             // Manejados por StepAttributes o ignorados si llegan en un catálogo
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MultiSelectChoice — checkboxes con límite min/max
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun MultiSelectChoice(
+    schema: ChoiceSchema.MultiSelect,
+    currentValue: kotlinx.serialization.json.JsonElement?,
+    onAnswer: (kotlinx.serialization.json.JsonElement) -> Unit,
+) {
+    // El valor almacenado es un JsonArray de strings (ids)
+    val selectedIds: List<String> = remember(currentValue) {
+        when (currentValue) {
+            is JsonArray -> currentValue.mapNotNull { (it as? JsonPrimitive)?.content }
+            else -> emptyList()
+        }
+    }
+    val count = selectedIds.size
+
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(schema.label, style = MaterialTheme.typography.labelMedium, color = Gold)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "$count / ${schema.max}",
+                style = MaterialTheme.typography.labelSmall,
+                color = when {
+                    count < schema.min -> Ember
+                    count > schema.max -> Ember
+                    else -> Ash
+                },
+            )
+        }
+        if (schema.min > 0) {
+            Text(
+                text = "Elige entre ${schema.min} y ${schema.max}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Ash,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        schema.options.forEach { opt ->
+            val isChecked = opt.id in selectedIds
+            // Deshabilitar check si ya se alcanzó el máximo y esta opción no está seleccionada
+            val canCheck = isChecked || count < schema.max
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Checkbox(
+                    checked = isChecked,
+                    onCheckedChange = { checked ->
+                        if (!canCheck && checked) return@Checkbox
+                        val newList = if (checked) selectedIds + opt.id else selectedIds - opt.id
+                        onAnswer(JsonArray(newList.map { JsonPrimitive(it) }))
+                    },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = Aurum,
+                        uncheckedColor = if (canCheck) Ash else Iron,
+                    ),
+                    enabled = canCheck || isChecked,
+                )
+                Column {
+                    Text(
+                        text = opt.label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (canCheck || isChecked) Parchment else Ash,
+                    )
+                    opt.description?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = Ash)
+                    }
+                }
+            }
         }
     }
 }

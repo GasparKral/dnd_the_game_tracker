@@ -110,6 +110,11 @@ data class UpdateDraftRequest(
     val choices: Map<String, JsonElement> = emptyMap(),
 )
 
+@Serializable
+data class SetDraftStepRequest(
+    val step: CreationStep,
+)
+
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------

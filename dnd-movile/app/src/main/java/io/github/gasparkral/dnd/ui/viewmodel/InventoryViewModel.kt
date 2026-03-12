@@ -111,30 +111,11 @@ class InventoryViewModel(
     fun openAddDialog() = _state.update { it.copy(showAddDialog = true) }
     fun closeAddDialog() = _state.update { it.copy(showAddDialog = false) }
 
-    fun addItem(
-        name: String,
-        category: ItemCategory,
-        description: String,
-        quantity: Int,
-        weight: Float?,
-        accessoryType: String? = null,
-        notes: String,
-    ) {
-        if (name.isBlank() || quantity < 1) return
+    fun addItem(request: AddItemRequest) {
+        if (request.name.isBlank() || request.quantity < 1) return
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true) }
-            repo.addItem(
-                characterId,
-                AddItemRequest(
-                    name.trim(),
-                    category,
-                    description.trim(),
-                    quantity,
-                    weight,
-                    accessoryType,
-                    notes = notes.trim()
-                ),
-            ).fold(
+            repo.addItem(characterId, request).fold(
                 onOk = { item ->
                     val newItems = _state.value.items + item
                     _state.update {

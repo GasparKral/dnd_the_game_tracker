@@ -3,7 +3,10 @@ use super::NewItemData;
 use dioxus::prelude::*;
 
 #[component]
-pub fn ConsumableForm(on_save: EventHandler<NewItemData>) -> Element {
+pub fn ConsumableForm(
+    on_save: Callback<NewItemData>,
+    #[props(default)] save_label: Option<&'static str>,
+) -> Element {
     let mut name = use_signal(String::new);
     let mut description = use_signal(String::new);
     let mut weight = use_signal(String::new);
@@ -65,6 +68,7 @@ pub fn ConsumableForm(on_save: EventHandler<NewItemData>) -> Element {
                     value: "{notes}", oninput: move |e| notes.set(e.value()) }
             }
             SaveButton {
+                label: save_label,
                 onclick: move |_| {
                     let mut extra = std::collections::HashMap::new();
                     extra.insert("consumable_type".into(), consumable_type.read().clone());

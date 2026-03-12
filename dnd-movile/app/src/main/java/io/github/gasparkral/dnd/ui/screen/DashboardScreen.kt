@@ -29,6 +29,7 @@ fun DashboardScreen(
     onNavigateToLore: () -> Unit = {},
     onNavigateToCombat: () -> Unit = {},
     onNavigateToSpells: () -> Unit = {},
+    onNavigateToDiceRoller: () -> Unit = {},
 ) {
     val repo: DraftRepository = koinInject()
     var character by remember { mutableStateOf<SavedCharacter?>(null) }
@@ -55,13 +56,14 @@ fun DashboardScreen(
                 calculateEffectiveStats(c.attributes, c.inventory)
             }
             DashboardContent(
-                modifier              = modifier,
-                character             = c,
-                effectiveStats        = effectiveStats,
-                onNavigateToInventory = onNavigateToInventory,
-                onNavigateToLore      = onNavigateToLore,
-                onNavigateToCombat    = onNavigateToCombat,
-                onNavigateToSpells    = onNavigateToSpells,
+                modifier               = modifier,
+                character              = c,
+                effectiveStats         = effectiveStats,
+                onNavigateToInventory  = onNavigateToInventory,
+                onNavigateToLore       = onNavigateToLore,
+                onNavigateToCombat     = onNavigateToCombat,
+                onNavigateToSpells     = onNavigateToSpells,
+                onNavigateToDiceRoller = onNavigateToDiceRoller,
             )
         }
     }
@@ -76,6 +78,7 @@ private fun DashboardContent(
     onNavigateToLore: () -> Unit,
     onNavigateToCombat: () -> Unit,
     onNavigateToSpells: () -> Unit,
+    onNavigateToDiceRoller: () -> Unit = {},
 ) {
     Column(modifier.padding(16.dp)) {
 
@@ -163,6 +166,14 @@ private fun DashboardContent(
                     subtitle = "Mundo y conocimiento",
                     icon     = Icons.Filled.MenuBook,
                     onClick  = onNavigateToLore,
+                )
+            }
+            item {
+                DashboardCard(
+                    title    = "Dados",
+                    subtitle = "Tirar y modificadores",
+                    icon     = Icons.Filled.Casino,
+                    onClick  = onNavigateToDiceRoller,
                 )
             }
         }

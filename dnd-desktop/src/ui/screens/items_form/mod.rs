@@ -9,6 +9,8 @@ pub mod weapon_form;
 
 use crate::states::SharedState;
 use dioxus::prelude::*;
+use shared::api_types::inventory::{InventoryItem, ItemCategory};
+use uuid::Uuid;
 
 use armour_form::ArmourForm;
 use consumable_form::ConsumableForm;
@@ -84,32 +86,84 @@ pub struct NewItemData {
 
 // ── Modal dispatcher ──────────────────────────────────────────────────────────
 
+/// Modal unificado de creación de objetos.
+///
+/// - Cuando `character_id` es `Some(id)`, además de escribir al vault también
+///   añade el objeto al inventario del personaje indicado y llama `on_added`.
+/// - Cuando `character_id` es `None`, sólo escribe al vault y llama `on_created`.
 #[component]
-pub fn CreateItemModal(on_close: EventHandler<()>, on_created: EventHandler<()>) -> Element {
+pub fn CreateItemModal(
+    on_close: EventHandler<()>,
+    on_created: EventHandler<()>,
+    /// Si se proporciona, el objeto se añade también al inventario de este PJ.
+    #[props(default)]
+    character_id: Option<Uuid>,
+    /// Callback extra que se dispara después de añadir al inventario.
+    /// Recibe el `InventoryItem` recién creado.
+    #[props(default)]
+    on_added: Option<EventHandler<InventoryItem>>,
+) -> Element {
     let state = use_context::<SharedState>();
     let mut selected_type = use_signal(ItemType::default);
     let mut saving = use_signal(|| false);
     let mut save_error: Signal<Option<String>> = use_signal(|| None);
 
-    // Callback que llega desde los subformularios con los datos completos
+    // Etiqueta del botón de guardar según el contexto.
+    let btn_label: Option<&'static str> = if character_id.is_some() {
+        Some("➕ Guardar y añadir al inventario")
+    } else {
+        None // usa el valor por defecto del SaveButton
+    };
+
+    // use_callback produce un Callback<NewItemData> que es Copy,
+    // eliminando la necesidad de clonar el handler para cada subform.
     let st = state.clone();
-    let on_save = move |data: NewItemData| {
+    let on_save: Callback<NewItemData> = use_callback(move |data: NewItemData| {
         let item_type = selected_type.read().clone();
-        let st = st.clone();
+        let s = st.0.clone();
         saving.set(true);
         save_error.set(None);
         spawn(async move {
-            match write_item_to_vault(&st.0, &item_type, data).await {
-                Ok(()) => {
-                    on_created.call(());
-                }
+            match write_item_to_vault(&s, &item_type, &data).await {
                 Err(e) => {
                     save_error.set(Some(e));
                     saving.set(false);
                 }
+                Ok(()) => {
+                    // Modo inventario: también persistir en el inventario del PJ.
+                    if let Some(cid) = character_id {
+                        let category = item_type_to_inventory_category(&item_type);
+                        let inv_item = InventoryItem {
+                            id: Uuid::new_v4(),
+                            name: data.name.clone(),
+                            category,
+                            description: data.description.clone(),
+                            quantity: 1,
+                            weight: data.weight,
+                            equipped: false,
+                            accessory_type: None,
+                            stat_bonuses: vec![],
+                            notes: data.notes.clone(),
+                        };
+                        let item_clone = inv_item.clone();
+                        match s.persistence.add_item(cid, item_clone).await {
+                            Ok(persisted) => {
+                                if let Some(handler) = on_added {
+                                    handler.call(persisted);
+                                }
+                            }
+                            Err(e) => {
+                                // El vault ya se escribió; reportamos el error
+                                // de inventario pero no bloqueamos.
+                                tracing::warn!("No se pudo añadir al inventario: {e}");
+                            }
+                        }
+                    }
+                    on_created.call(());
+                }
             }
         });
-    };
+    });
 
     rsx! {
         // Backdrop
@@ -125,7 +179,8 @@ pub fn CreateItemModal(on_close: EventHandler<()>, on_created: EventHandler<()>)
                 // ── Header ────────────────────────────────────────────────
                 div { style: "display:flex; justify-content:space-between; align-items:center;",
                     h2 { style: "font-size:1.05rem; font-weight:700; color:#fef3c7; margin:0;",
-                        "✨ Nuevo Objeto"
+                        if character_id.is_some() { "🎒 Nuevo Objeto (inventario)" }
+                        else { "✨ Nuevo Objeto" }
                     }
                     button {
                         style: "padding:4px 12px; font-size:0.68rem; border-radius:8px;
@@ -133,6 +188,15 @@ pub fn CreateItemModal(on_close: EventHandler<()>, on_created: EventHandler<()>)
                                 border:1px solid #292524;",
                         onclick: move |_| on_close.call(()),
                         "✕ Cerrar"
+                    }
+                }
+
+                // Aviso de modo inventario
+                if character_id.is_some() {
+                    div {
+                        style: "font-size:0.7rem; color:#86efac; background:#052e16;
+                                border:1px solid #166534; border-radius:8px; padding:6px 12px;",
+                        "El objeto se guardará en el vault — y se añadirá automáticamente al inventario del personaje."
                     }
                 }
 
@@ -167,27 +231,19 @@ pub fn CreateItemModal(on_close: EventHandler<()>, on_created: EventHandler<()>)
                 }
 
                 // ── Formulario dinámico según tipo ────────────────────────
-                {
-                    let on_save2 = on_save.clone();
-                    let on_save3 = on_save.clone();
-                    let on_save4 = on_save.clone();
-                    let on_save5 = on_save.clone();
-                    let on_save6 = on_save.clone();
-                    match *selected_type.read() {
-                        ItemType::Weapon     => rsx! { WeaponForm     { on_save: on_save  } },
-                        ItemType::Armour     => rsx! { ArmourForm     { on_save: on_save2 } },
-                        ItemType::Consumable => rsx! { ConsumableForm { on_save: on_save3 } },
-                        //   ItemType::Tool       => rsx! { ToolForm       { on_save: on_save4 } },
-                        //   ItemType::Treasure   => rsx! { TreasureForm   { on_save: on_save5 } },
-                        ItemType::Misc       => rsx! { MiscForm       { on_save: on_save6 } },
-                        _=>rsx!{}
-                    }
+                // Callback<T> es Copy — se pasa directamente sin clonar.
+                match *selected_type.read() {
+                    ItemType::Weapon     => rsx! { WeaponForm     { on_save, save_label: btn_label } },
+                    ItemType::Armour     => rsx! { ArmourForm     { on_save, save_label: btn_label } },
+                    ItemType::Consumable => rsx! { ConsumableForm { on_save, save_label: btn_label } },
+                    ItemType::Misc       => rsx! { MiscForm       { on_save, save_label: btn_label } },
+                    _                    => rsx! {},
                 }
 
                 // ── Estado guardado ───────────────────────────────────────
                 if *saving.read() {
                     p { style: "font-size:0.75rem; color:#fbbf24; text-align:center;",
-                        "Guardando en el vault…"
+                        "Guardando…"
                     }
                 }
                 if let Some(err) = save_error.read().clone() {
@@ -201,12 +257,48 @@ pub fn CreateItemModal(on_close: EventHandler<()>, on_created: EventHandler<()>)
     }
 }
 
+// ── Conversión de ItemType a ItemCategory de inventario ───────────────────────
+
+fn item_type_to_inventory_category(t: &ItemType) -> ItemCategory {
+    match t {
+        ItemType::Weapon     => ItemCategory::Weapon,
+        ItemType::Armour     => ItemCategory::Armour,
+        ItemType::Consumable => ItemCategory::Consumable,
+        ItemType::Tool       => ItemCategory::Tool,
+        ItemType::Treasure   => ItemCategory::Treasure,
+        ItemType::Misc       => ItemCategory::Misc,
+    }
+}
+
 // ── Serialización al vault ────────────────────────────────────────────────────
+
+/// Serializa un campo de texto como escalar YAML correcto.
+///
+/// - Si el valor contiene saltos de línea → bloque literal `|` (indentado 2 espacios)
+/// - Si contiene caracteres especiales → string entre comillas con escape mínimo
+/// - En caso contrario → string entre comillas dobles
+///
+/// Evita que `gray_matter` falle al parsear frontmatter con saltos de línea
+/// incrustados dentro de comillas dobles, que no es YAML válido.
+fn yaml_scalar(lines: &mut Vec<String>, key: &str, value: &str) {
+    if value.contains('\n') {
+        // Bloque literal: cada línea indentada con 2 espacios
+        lines.push(format!("{key}: |"));
+        for line in value.lines() {
+            lines.push(format!("  {line}"));
+        }
+    } else if value.contains('"') || value.contains(':') || value.contains('#') || value.starts_with(' ') {
+        // Escapar backslashes y comillas dobles internas
+        lines.push(format!("{key}: \"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")));
+    } else {
+        lines.push(format!("{key}: \"{value}\""));
+    }
+}
 
 async fn write_item_to_vault(
     state: &crate::states::AppState,
     item_type: &ItemType,
-    data: NewItemData,
+    data: &NewItemData,
 ) -> Result<(), String> {
     // Construir el slug desde el nombre
     let slug = data
@@ -230,11 +322,7 @@ async fn write_item_to_vault(
         format!("category: {}", item_type.vault_category()),
         format!(
             "rarity: {}",
-            if data.rarity.is_empty() {
-                "common".to_string()
-            } else {
-                data.rarity
-            }
+            if data.rarity.is_empty() { "common" } else { data.rarity.as_str() }
         ),
         format!(
             "source: \"{}\"",
@@ -252,17 +340,13 @@ async fn write_item_to_vault(
     }
 
     if !data.description.is_empty() {
-        // Descripción multi-línea en YAML
-        yaml_lines.push(format!(
-            "description: \"{}\"",
-            data.description.replace('"', "\\\"")
-        ));
+        yaml_scalar(&mut yaml_lines, "description", &data.description);
     }
 
     // Campos extra específicos del tipo
     for (k, v) in &data.extra {
         if !v.is_empty() {
-            yaml_lines.push(format!("{k}: \"{v}\""));
+            yaml_scalar(&mut yaml_lines, k, v);
         }
     }
 
@@ -275,7 +359,7 @@ async fn write_item_to_vault(
     }
 
     if !data.notes.is_empty() {
-        yaml_lines.push(format!("notes: \"{}\"", data.notes.replace('"', "\\\"")));
+        yaml_scalar(&mut yaml_lines, "notes", &data.notes);
     }
 
     yaml_lines.push("---".to_string());
@@ -283,7 +367,7 @@ async fn write_item_to_vault(
     yaml_lines.push(format!("# {}", data.name));
     yaml_lines.push(String::new());
     if !data.description.is_empty() {
-        yaml_lines.push(data.description.clone());
+        yaml_lines.push(data.description.to_string());
     }
 
     let content = yaml_lines.join("\n");

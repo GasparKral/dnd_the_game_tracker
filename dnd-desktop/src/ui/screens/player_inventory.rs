@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::states::SharedState;
+use crate::ui::screens::items_form::CreateItemModal;
 use crate::vault::frontmatter::DndEntryType;
 use dioxus::prelude::*;
 use shared::api_types::inventory::{
@@ -267,7 +268,7 @@ pub fn InventoryPanel(
                     style: "padding:4px 12px; font-size:0.65rem; border-radius:8px; cursor:pointer;
                             background:#1a1208; color:#fbbf24; border:1px solid #78350f;",
                     onclick: move |_| show_quick_add.set(true),
-                    "✏️ Objeto rápido"
+                    "✏️ Crear objeto"
                 }
                 button {
                     style: "padding:4px 12px; font-size:0.65rem; border-radius:8px; cursor:pointer;
@@ -374,12 +375,14 @@ pub fn InventoryPanel(
         }
 
         if *show_quick_add.read() {
-            QuickAddItemModal {
-                character_id,
+            CreateItemModal {
+                character_id: Some(character_id),
                 on_close: move || show_quick_add.set(false),
+                // on_created se dispara siempre (vault OK); cerramos el modal.
+                on_created: move || show_quick_add.set(false),
+                // on_added se dispara con el InventoryItem ya persistido.
                 on_added: move |item: InventoryItem| {
                     live_items.write().push(item);
-                    show_quick_add.set(false);
                 },
             }
         }
@@ -739,23 +742,26 @@ fn ItemRow(
                         "{item.name}"
                     }
                     button {
-                        style: "padding:1px 7px; font-size:0.58rem; border-radius:5px; cursor:pointer;
-                                background:#1a1208; color:#f59e0b; border:1px solid #78350f; flex-shrink:0;",
+                        style: "padding:2px 8px; font-size:0.65rem; border-radius:5px; cursor:pointer;
+                                background:#1a1208; color:#f59e0b; border:1px solid #78350f; flex-shrink:0;
+                                display:inline-flex; align-items:center; gap:3px;",
+                        title: "Editar objeto",
                         onclick: move |e| {
                             e.stop_propagation();
-                            // Fix E0502: leer el valor primero, luego mutar —
-                            // evita tener un borrow inmutable y uno mutable activos
-                            // al mismo tiempo sobre la misma Signal.
                             let current = *editing.read();
                             editing.set(!current);
                         },
-                        "✏️"
+                        span { "✏️" }
+                        span { style: "font-size:0.6rem;", "Editar" }
                     }
                     button {
-                        style: "padding:1px 7px; font-size:0.58rem; border-radius:5px; cursor:pointer;
-                                background:#200a0a; color:#f87171; border:1px solid #7f1d1d; flex-shrink:0;",
+                        style: "padding:2px 8px; font-size:0.65rem; border-radius:5px; cursor:pointer;
+                                background:#200a0a; color:#f87171; border:1px solid #7f1d1d; flex-shrink:0;
+                                display:inline-flex; align-items:center; gap:3px;",
+                        title: "Eliminar objeto",
                         onclick: move |e| { e.stop_propagation(); on_delete.call(iid); },
-                        "🗑"
+                        span { "🗑" }
+                        span { style: "font-size:0.6rem;", "Borrar" }
                     }
                 }
 
@@ -781,16 +787,7 @@ fn ItemRow(
                     div { style: "display:grid; grid-template-columns:1fr 1fr 3fr; gap:10px; align-items:end;",
                         div { style: "display:flex; flex-direction:column; gap:4px;",
                             label { style: "font-size:0.6rem; color:#78716c;", "Cantidad" }
-                            input {
-                                r#type: "number", min: "0",
-                                style: "padding:5px 8px; font-size:0.8rem; border-radius:7px;
-                                        background:#0c0a09; border:1px solid #292524; color:#e7e5e4;
-                                        outline:none; box-sizing:border-box; width:100%;",
-                                value: "{e_qty}",
-                                oninput: move |ev| {
-                                    if let Ok(v) = ev.value().parse::<u32>() { e_qty.set(v); }
-                                }
-                            }
+                            NumStepper { value: e_qty, min: 0, max: 9999 }
                         }
                         div { style: "display:flex; flex-direction:column; gap:4px;",
                             label { style: "font-size:0.6rem; color:#78716c;", "Equipado" }
@@ -922,6 +919,50 @@ fn QuickField(label: &'static str, children: Element) -> Element {
 }
 
 // ─── Conversión de string a ItemCategory ─────────────────────────────────────
+
+// ─── NumStepper: input numérico con botones +/− ──────────────────────────────────────────────────────
+
+#[component]
+fn NumStepper(mut value: Signal<u32>, min: u32, max: u32) -> Element {
+    rsx! {
+        div {
+            style: "display:flex; align-items:center; border:1px solid #44403c;
+                    border-radius:8px; overflow:hidden; background:#0c0a09;",
+            button {
+                style: "width:28px; height:32px; background:#1c1917; color:#f59e0b;
+                        border:none; border-right:1px solid #292524; cursor:pointer;
+                        font-size:1rem; font-weight:700; flex-shrink:0;
+                        display:flex; align-items:center; justify-content:center;",
+                onclick: move |_| {
+                    let v = *value.read();
+                    if v > min { value.set(v - 1); }
+                },
+                "−"
+            }
+            input {
+                r#type: "number", min: "{min}", max: "{max}",
+                style: "flex:1; min-width:0; padding:4px 2px; text-align:center;
+                        font-size:0.85rem; font-weight:700; color:#e7e5e4;
+                        background:transparent; border:none; outline:none;",
+                value: "{value}",
+                oninput: move |e| {
+                    if let Ok(v) = e.value().parse::<u32>() { value.set(v.clamp(min, max)); }
+                },
+            }
+            button {
+                style: "width:28px; height:32px; background:#1c1917; color:#f59e0b;
+                        border:none; border-left:1px solid #292524; cursor:pointer;
+                        font-size:1rem; font-weight:700; flex-shrink:0;
+                        display:flex; align-items:center; justify-content:center;",
+                onclick: move |_| {
+                    let v = *value.read();
+                    if v < max { value.set(v + 1); }
+                },
+                "+"
+            }
+        }
+    }
+}
 
 pub fn category_from_str(s: &str) -> ItemCategory {
     match s {

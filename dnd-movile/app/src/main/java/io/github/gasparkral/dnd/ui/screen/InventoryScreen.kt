@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Remove
@@ -26,12 +27,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.imePadding
+import io.github.gasparkral.dnd.model.AddItemRequest
+import io.github.gasparkral.dnd.model.BonusStat
 import io.github.gasparkral.dnd.model.BonusType
 import io.github.gasparkral.dnd.model.Currency
 import io.github.gasparkral.dnd.model.InventoryItem
@@ -205,9 +211,7 @@ fun InventoryScreen(
         AddItemDialog(
             isSaving = state.isSaving,
             onDismiss = vm::closeAddDialog,
-            onConfirm = { name, cat, desc, qty, weight, accessoryType, notes ->
-                vm.addItem(name, cat, desc, qty, weight, accessoryType, notes)
-            },
+            onConfirm = { request -> vm.addItem(request) },
         )
     }
 
@@ -730,31 +734,72 @@ private fun StatBonusBadges(
 }
 
 // ---------------------------------------------------------------------------
-// Diálogo añadir objeto
+// Diálogo añadir objeto — dinámico por categoría
 // ---------------------------------------------------------------------------
+
+/** Datos extra específicos por categoría. Se resetean al cambiar de categoría. */
+private data class CategoryExtras(
+    // Weapon
+    val damageDice: String = "",
+    val damageType: String = "slashing",
+    val weaponKind: String = "simple",
+    val rangeNormal: String = "",
+    val rangeLong: String = "",
+    val properties: String = "",
+    // Armour
+    val armourCategory: String = "light",
+    val baseAc: String = "",
+    val dexCap: String = "",
+    val strReq: String = "",
+    val stealthDisadv: Boolean = false,
+    // Consumable
+    val consumableSubtype: String = "potion",
+    val effect: String = "",
+    val duration: String = "",
+    // Accessory / Tool
+    val accessorySubtype: String = "",
+    val statBonuses: List<DraftBonus> = emptyList(),
+    // Treasure
+    val gpValue: String = "",
+    val treasureType: String = "gem",
+)
+
+private data class DraftBonus(
+    val stat: BonusStat = BonusStat.Strength,
+    val value: String = "0",
+    val bonusType: BonusType = BonusType.Item,
+)
 
 @Composable
 private fun AddItemDialog(
     isSaving: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (String, ItemCategory, String, Int, Float?, String?, String) -> Unit,
+    onConfirm: (AddItemRequest) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    var quantityText by remember { mutableStateOf("1") }
-    var weightText by remember { mutableStateOf("") }
+    var name            by remember { mutableStateOf("") }
+    var description     by remember { mutableStateOf("") }
+    var notes           by remember { mutableStateOf("") }
+    var quantityText    by remember { mutableStateOf("1") }
+    var weightText      by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(ItemCategory.Misc) }
-    var accessoryType by remember { mutableStateOf("") }
-    var nameError by remember { mutableStateOf(false) }
+    var nameError       by remember { mutableStateOf(false) }
+    var extras          by remember { mutableStateOf(CategoryExtras()) }
+
+    LaunchedEffect(selectedCategory) { extras = CategoryExtras() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF1C1917),
         titleContentColor = Color(0xFFFEF3C7),
-        title = { Text("🎒 Añadir a la mochila") },
+        title = { Text("${selectedCategory.emoji()} Añadir a la mochila") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // ── Nombre ────────────────────────────────────────────────
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it; nameError = false },
@@ -763,7 +808,9 @@ private fun AddItemDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Categoría", style = MaterialTheme.typography.labelMedium, color = Ash)
+
+                // ── Selector de categoría ─────────────────────────────────
+                DialogLabel("Categoría")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(ItemCategory.entries) { cat ->
                         FilterChip(
@@ -773,6 +820,8 @@ private fun AddItemDialog(
                         )
                     }
                 }
+
+                // ── Descripción ───────────────────────────────────────────
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -780,58 +829,81 @@ private fun AddItemDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // ── Campos específicos por categoría ──────────────────────
+                when (selectedCategory) {
+                    ItemCategory.Weapon     -> WeaponExtrasSection(extras)     { extras = it }
+                    ItemCategory.Armour     -> ArmourExtrasSection(extras)     { extras = it }
+                    ItemCategory.Consumable -> ConsumableExtrasSection(extras) { extras = it }
+                    ItemCategory.Accessory  -> AccessoryExtrasSection(extras)  { extras = it }
+                    ItemCategory.Treasure   -> TreasureExtrasSection(extras)   { extras = it }
+                    ItemCategory.Tool       -> ToolExtrasSection(extras)       { extras = it }
+                    ItemCategory.Misc       -> { /* solo campos base */ }
+                }
+
+                // ── Cantidad + Peso ───────────────────────────────────────
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = quantityText,
                         onValueChange = { quantityText = it.filter(Char::isDigit) },
                         label = { Text("Cant.") },
+                        singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
-                        singleLine = true,
                     )
                     OutlinedTextField(
                         value = weightText,
                         onValueChange = { weightText = it },
                         label = { Text("Peso (lb)") },
+                        singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
-                        singleLine = true,
                     )
                 }
-                // Campo tipo de accesorio — solo visible si la categoría es Accessory
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = selectedCategory == ItemCategory.Accessory,
-                ) {
-                    OutlinedTextField(
-                        value = accessoryType,
-                        onValueChange = { accessoryType = it },
-                        label = { Text("💍 Tipo de accesorio") },
-                        placeholder = { Text("ej: botas, anillo, capucha…") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+
+                // ── Notas ─────────────────────────────────────────────────
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notas mágicas o especiales") },
+                    label = { Text("Notas") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    maxLines = 2,
                 )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = {
-                    if (name.isBlank()) {
-                        nameError = true; return@TextButton
-                    }
-                    val qty = quantityText.toIntOrNull()?.coerceAtLeast(1) ?: 1
-                    val accType = if (selectedCategory == ItemCategory.Accessory && accessoryType.isNotBlank())
-                        accessoryType else null
-                    onConfirm(name, selectedCategory, description, qty, weightText.toFloatOrNull(), accType, notes)
-                },
                 enabled = !isSaving,
+                onClick = {
+                    if (name.isBlank()) { nameError = true; return@TextButton }
+                    val qty    = quantityText.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                    val weight = weightText.toFloatOrNull()
+
+                    val statBonuses = when (selectedCategory) {
+                        ItemCategory.Accessory -> extras.statBonuses.mapNotNull { draft ->
+                            val v = draft.value.toIntOrNull() ?: return@mapNotNull null
+                            StatBonus(draft.stat, v, draft.bonusType)
+                        }
+                        else -> emptyList()
+                    }
+                    val accType = when (selectedCategory) {
+                        ItemCategory.Accessory -> extras.accessorySubtype.ifBlank { null }
+                        else -> null
+                    }
+
+                    onConfirm(
+                        AddItemRequest(
+                            name          = name.trim(),
+                            category      = selectedCategory,
+                            description   = description.trim(),
+                            quantity      = qty,
+                            weight        = weight,
+                            accessoryType = accType,
+                            statBonuses   = statBonuses,
+                            notes         = buildEnrichedNotes(selectedCategory, extras, notes),
+                        )
+                    )
+                },
             ) {
                 if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 else Text("Guardar", color = Aurum)
@@ -843,6 +915,377 @@ private fun AddItemDialog(
             }
         },
     )
+}
+
+// ---------------------------------------------------------------------------
+// Secciones específicas por categoría
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun WeaponExtrasSection(extras: CategoryExtras, onChange: (CategoryExtras) -> Unit) {
+    val damageTypes = listOf(
+        "slashing", "piercing", "bludgeoning", "fire", "cold",
+        "lightning", "thunder", "poison", "acid", "psychic", "radiant", "necrotic", "force"
+    )
+    DialogLabel("⚔️ Datos de arma")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = extras.damageDice,
+            onValueChange = { onChange(extras.copy(damageDice = it)) },
+            label = { Text("Daño (ej. 1d8)") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        DialogDropdown(
+            label = "Tipo daño",
+            options = damageTypes,
+            selected = extras.damageType,
+            onSelect = { onChange(extras.copy(damageType = it)) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DialogDropdown(
+            label = "Categoría",
+            options = listOf("simple", "martial"),
+            labels  = listOf("Simple", "Marcial"),
+            selected = extras.weaponKind,
+            onSelect = { onChange(extras.copy(weaponKind = it)) },
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = extras.properties,
+            onValueChange = { onChange(extras.copy(properties = it)) },
+            label = { Text("Propiedades") },
+            placeholder = { Text("finesse, light…") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = extras.rangeNormal,
+            onValueChange = { onChange(extras.copy(rangeNormal = it)) },
+            label = { Text("Alcance normal") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = extras.rangeLong,
+            onValueChange = { onChange(extras.copy(rangeLong = it)) },
+            label = { Text("Alcance largo") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ArmourExtrasSection(extras: CategoryExtras, onChange: (CategoryExtras) -> Unit) {
+    DialogLabel("🛡️ Datos de armadura")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DialogDropdown(
+            label = "Categoría",
+            options = listOf("light", "medium", "heavy", "shield"),
+            labels  = listOf("Ligera", "Media", "Pesada", "Escudo"),
+            selected = extras.armourCategory,
+            onSelect = { onChange(extras.copy(armourCategory = it)) },
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = extras.baseAc,
+            onValueChange = { onChange(extras.copy(baseAc = it)) },
+            label = { Text("CA base") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+    }
+    if (extras.armourCategory == "medium") {
+        OutlinedTextField(
+            value = extras.dexCap,
+            onValueChange = { onChange(extras.copy(dexCap = it)) },
+            label = { Text("Cap DES (máx)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    if (extras.armourCategory == "heavy") {
+        OutlinedTextField(
+            value = extras.strReq,
+            onValueChange = { onChange(extras.copy(strReq = it)) },
+            label = { Text("Req. FUE mínima") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Checkbox(
+            checked = extras.stealthDisadv,
+            onCheckedChange = { onChange(extras.copy(stealthDisadv = it)) },
+        )
+        Text("Desventaja en Sigilo", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFA8A29E))
+    }
+}
+
+@Composable
+private fun ConsumableExtrasSection(extras: CategoryExtras, onChange: (CategoryExtras) -> Unit) {
+    DialogLabel("🧪 Datos de consumible")
+    DialogDropdown(
+        label = "Subtipo",
+        options = listOf("potion", "scroll", "food", "poison", "other"),
+        labels  = listOf("Poción", "Pergamino", "Comida/Bebida", "Veneno", "Otro"),
+        selected = extras.consumableSubtype,
+        onSelect = { onChange(extras.copy(consumableSubtype = it)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = extras.effect,
+        onValueChange = { onChange(extras.copy(effect = it)) },
+        label = { Text("Efecto (ej. Cura 2d4+2 PG)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = extras.duration,
+        onValueChange = { onChange(extras.copy(duration = it)) },
+        label = { Text("Duración (ej. 1 hora)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun AccessoryExtrasSection(extras: CategoryExtras, onChange: (CategoryExtras) -> Unit) {
+    DialogLabel("💍 Datos de accesorio")
+    DialogDropdown(
+        label = "Tipo de accesorio",
+        options = listOf("ring", "amulet", "cloak", "belt", "boots", "gloves", "helmet", "bracers", "other"),
+        labels  = listOf("Anillo", "Amuleto", "Capa", "Cinturón", "Botas", "Guantes", "Yelmo", "Brazaletes", "Otro"),
+        selected = extras.accessorySubtype.ifBlank { "ring" },
+        onSelect = { onChange(extras.copy(accessorySubtype = it)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    DialogLabel("Bonificadores de estadística")
+    extras.statBonuses.forEachIndexed { idx, draft ->
+        StatBonusRow(
+            draft    = draft,
+            onChange = { updated ->
+                val list = extras.statBonuses.toMutableList().also { it[idx] = updated }
+                onChange(extras.copy(statBonuses = list))
+            },
+            onRemove = {
+                val list = extras.statBonuses.toMutableList().also { it.removeAt(idx) }
+                onChange(extras.copy(statBonuses = list))
+            },
+        )
+    }
+    TextButton(onClick = { onChange(extras.copy(statBonuses = extras.statBonuses + DraftBonus())) }) {
+        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("Añadir bonificador")
+    }
+}
+
+@Composable
+private fun StatBonusRow(
+    draft: DraftBonus,
+    onChange: (DraftBonus) -> Unit,
+    onRemove: () -> Unit,
+) {
+    val stats      = BonusStat.entries
+    val bonusTypes = BonusType.entries
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        DialogDropdown(
+            label    = "Stat",
+            options  = stats.map { it.name },
+            labels   = stats.map { it.label() },
+            selected = draft.stat.name,
+            onSelect = { name -> onChange(draft.copy(stat = BonusStat.valueOf(name))) },
+            modifier = Modifier.weight(2f),
+        )
+        OutlinedTextField(
+            value = draft.value,
+            onValueChange = { onChange(draft.copy(value = it)) },
+            label = { Text("Val.") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+        DialogDropdown(
+            label    = "Tipo",
+            options  = bonusTypes.map { it.name },
+            labels   = listOf("Item", "Estado", "Circ.", "Sin tipo"),
+            selected = draft.bonusType.name,
+            onSelect = { name -> onChange(draft.copy(bonusType = BonusType.valueOf(name))) },
+            modifier = Modifier.weight(1.5f),
+        )
+        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Filled.Close, contentDescription = "Eliminar", tint = Color(0xFF78716C), modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun TreasureExtrasSection(extras: CategoryExtras, onChange: (CategoryExtras) -> Unit) {
+    DialogLabel("💎 Datos de tesoro")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DialogDropdown(
+            label    = "Tipo",
+            options  = listOf("gem", "art", "jewellery", "coin", "other"),
+            labels   = listOf("Gema", "Obra de arte", "Joyería", "Moneda especial", "Otro"),
+            selected = extras.treasureType,
+            onSelect = { onChange(extras.copy(treasureType = it)) },
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = extras.gpValue,
+            onValueChange = { onChange(extras.copy(gpValue = it)) },
+            label = { Text("Valor (PO)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ToolExtrasSection(extras: CategoryExtras, onChange: (CategoryExtras) -> Unit) {
+    DialogLabel("🔧 Herramienta")
+    OutlinedTextField(
+        value = extras.accessorySubtype,
+        onValueChange = { onChange(extras.copy(accessorySubtype = it)) },
+        label = { Text("Tipo (ej. Instrumentos de ladrón)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Helpers de UI compartidos por las secciones
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun DialogLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = Color(0xFF78716C),
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+/**
+ * Dropdown compacto para usar dentro de diálogos.
+ * Usa ExposedDropdownMenuBox de Material3 para que los taps funcionen
+ * correctamente dentro de AlertDialog en Android.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DialogDropdown(
+    label: String,
+    options: List<String>,
+    labels: List<String> = options,
+    selected: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = labels.getOrNull(options.indexOf(selected)) ?: selected
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier,
+    ) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            label = { Text(label) },
+            readOnly = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth(),
+            singleLine = true,
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEachIndexed { i, opt ->
+                DropdownMenuItem(
+                    text = { Text(labels.getOrElse(i) { opt }) },
+                    onClick = { onSelect(opt); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enriquecer notas con campos específicos de la categoría
+// ---------------------------------------------------------------------------
+
+private fun buildEnrichedNotes(
+    category: ItemCategory,
+    extras: CategoryExtras,
+    baseNotes: String,
+): String {
+    val parts = mutableListOf<String>()
+    when (category) {
+        ItemCategory.Weapon -> {
+            if (extras.damageDice.isNotBlank())
+                parts += "Daño: ${extras.damageDice} ${extras.damageType}"
+            if (extras.weaponKind.isNotBlank())
+                parts += "Tipo: ${extras.weaponKind}"
+            if (extras.rangeNormal.isNotBlank())
+                parts += "Alcance: ${extras.rangeNormal}/${extras.rangeLong.ifBlank { "?" }} ft."
+            if (extras.properties.isNotBlank())
+                parts += "Propiedades: ${extras.properties}"
+        }
+        ItemCategory.Armour -> {
+            if (extras.baseAc.isNotBlank()) {
+                val acStr = when (extras.armourCategory) {
+                    "light"  -> "CA: ${extras.baseAc} + DES"
+                    "medium" -> "CA: ${extras.baseAc} + DES (máx ${extras.dexCap.ifBlank { "2" }})"
+                    "heavy"  -> "CA: ${extras.baseAc}"
+                    "shield" -> "CA: +${extras.baseAc}"
+                    else     -> "CA: ${extras.baseAc}"
+                }
+                parts += acStr
+            }
+            if (extras.strReq.isNotBlank()) parts += "Req. FUE: ${extras.strReq}"
+            if (extras.stealthDisadv)        parts += "Desventaja en Sigilo"
+        }
+        ItemCategory.Consumable -> {
+            if (extras.consumableSubtype.isNotBlank()) parts += "Subtipo: ${extras.consumableSubtype}"
+            if (extras.effect.isNotBlank())            parts += "Efecto: ${extras.effect}"
+            if (extras.duration.isNotBlank())          parts += "Duración: ${extras.duration}"
+        }
+        ItemCategory.Treasure -> {
+            if (extras.treasureType.isNotBlank()) parts += "Tipo: ${extras.treasureType}"
+            if (extras.gpValue.isNotBlank())       parts += "Valor: ${extras.gpValue} PO"
+        }
+        ItemCategory.Tool -> {
+            if (extras.accessorySubtype.isNotBlank()) parts += "Tipo: ${extras.accessorySubtype}"
+        }
+        else -> {}
+    }
+    if (baseNotes.isNotBlank()) parts += baseNotes
+    return parts.joinToString(" · ")
 }
 
 // ---------------------------------------------------------------------------

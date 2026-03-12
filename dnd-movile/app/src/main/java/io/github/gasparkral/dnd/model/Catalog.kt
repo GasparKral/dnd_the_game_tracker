@@ -82,6 +82,16 @@ data class PointBuyField(
 )
 
 // ---------------------------------------------------------------------------
+// TraitDetail
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class TraitDetail(
+    val name: String,
+    val description: String,
+)
+
+// ---------------------------------------------------------------------------
 // CatalogEntry
 // ---------------------------------------------------------------------------
 
@@ -91,9 +101,14 @@ data class CatalogEntry(
     val name: String,
     val source: String,
     val description: String? = null,
+    val lore: String? = null,
     @SerialName("image_url") val imageUrl: String? = null,
     val choices: List<ChoiceSchema> = emptyList(),
+    @SerialName("required_choices") val requiredChoices: List<String> = emptyList(),
     @SerialName("traits_preview") val traitsPreview: List<String> = emptyList(),
+    @SerialName("traits_detail") val traitsDetail: List<TraitDetail> = emptyList(),
+    @SerialName("speed_m") val speedM: Int? = null,
+    val size: String? = null,
 )
 
 @Serializable

@@ -5,6 +5,7 @@ import io.github.gasparkral.dnd.infra.SocketManager
 import io.github.gasparkral.dnd.infra.repository.DraftRepository
 import io.github.gasparkral.dnd.infra.webSocketClient
 import io.github.gasparkral.dnd.ui.viewmodel.CharacterCreationViewModel
+import io.github.gasparkral.dnd.ui.viewmodel.DiceRollerViewModel
 import io.github.gasparkral.dnd.ui.viewmodel.InventoryViewModel
 import io.github.gasparkral.dnd.ui.viewmodel.SpellViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +45,12 @@ val appModule = module {
         SpellViewModel(
             characterId = characterId,
             repo = get(),
+        )
+    }
+
+    viewModel {
+        DiceRollerViewModel(
+            socketManager = get()
         )
     }
 }
