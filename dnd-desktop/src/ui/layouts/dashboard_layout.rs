@@ -12,6 +12,7 @@ pub fn DashboardLayout() -> Element {
                 Link{class:"text-lg text-center px-2",to:"/lore","Lore"}
                 Link{class:"text-lg text-center px-2",to:"/players","Jugadores"}
                 Link{class:"text-lg text-center px-2",to:"/items","Objetos"}
+                Link{class:"text-lg text-center px-2",to:"/combat","⚔ Combate"}
                 Link{class:"text-lg text-center px-2",to:"/map","Mapa"}
                 // Separador flexible
                 div { class: "flex-1" }

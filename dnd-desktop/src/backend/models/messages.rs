@@ -1,6 +1,7 @@
 // src/messages.rs
 
 use serde::{Deserialize, Serialize};
+use shared::api_types::combat::CombatState;
 use shared::models::dice::RollResult;
 use uuid::Uuid;
 
@@ -68,6 +69,10 @@ pub enum ServerMessage {
     /// El inventario o monedas de un personaje cambiaron — el jugador debe recargar
     InventoryChanged {
         character_id: Uuid,
+    },
+    /// El estado del combate cambió — todos los clientes deben refrescar la vista
+    CombatStateUpdate {
+        state: CombatState,
     },
 }
 

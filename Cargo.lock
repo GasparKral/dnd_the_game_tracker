@@ -1262,6 +1262,7 @@ dependencies = [
  "gray_matter",
  "notify",
  "pulldown-cmark",
+ "rand 0.10.0",
  "regex",
  "reqwest",
  "serde",

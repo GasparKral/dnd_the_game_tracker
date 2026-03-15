@@ -51,6 +51,19 @@ pub fn api_router() -> Router<SharedState> {
         .route("/campaigns/{filename}", get(load_campaign_by_file).delete(delete_campaign))
         // --- Combate ---
         .route("/combat", get(get_combat_state))
+        .route("/combat/start",  post(start_combat))
+        .route("/combat/end",    post(end_combat))
+        .route("/combat/reset",  post(reset_combat))
+        .route("/combat/next-turn", post(next_turn))
+        .route("/combat/roll-initiative", post(roll_initiative))
+        .route("/combat/combatant", post(add_combatant))
+        .route("/combat/combatant/from-template", post(add_from_template))
+        .route("/combat/combatant/{id}", delete(remove_combatant))
+        .route("/combat/combatant/{id}/hp", patch(update_hp))
+        .route("/combat/combatant/{id}/initiative", patch(set_initiative))
+        .route("/combat/combatant/{id}/conditions", patch(update_conditions))
+        .route("/combat/combatant/{id}/notes", patch(update_notes))
+        .route("/combat/turn/{id}", post(set_turn))
         // --- Lore ---
         .route("/lore", get(get_lore_index))
         .route("/lore/{*path}", get(get_lore_entry))
@@ -850,8 +863,192 @@ async fn delete_campaign(
 // Combate
 // ===========================================================================
 
-async fn get_combat_state(State(_state): State<SharedState>) -> impl IntoResponse {
-    StatusCode::NOT_IMPLEMENTED
+use shared::api_types::combat::{
+    AddCombatantRequest, AddFromTemplateRequest, RollInitiativeRequest,
+    SetInitiativeRequest, UpdateConditionsRequest, UpdateHpRequest, UpdateNotesRequest,
+};
+
+/// GET /api/combat — estado actual del combate
+async fn get_combat_state(State(state): State<SharedState>) -> impl IntoResponse {
+    let s = state.0.combat.snapshot().await;
+    (StatusCode::OK, Json(s))
+}
+
+/// POST /api/combat/start
+async fn start_combat(State(state): State<SharedState>) -> impl IntoResponse {
+    state.0.combat.start().await;
+    let s = state.0.combat.snapshot().await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s.clone() });
+    (StatusCode::OK, Json(s))
+}
+
+/// POST /api/combat/end
+async fn end_combat(State(state): State<SharedState>) -> impl IntoResponse {
+    state.0.combat.end().await;
+    let s = state.0.combat.snapshot().await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s.clone() });
+    (StatusCode::OK, Json(s))
+}
+
+/// POST /api/combat/reset
+async fn reset_combat(State(state): State<SharedState>) -> impl IntoResponse {
+    state.0.combat.reset().await;
+    let s = state.0.combat.snapshot().await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s.clone() });
+    (StatusCode::OK, Json(s))
+}
+
+/// POST /api/combat/next-turn
+async fn next_turn(State(state): State<SharedState>) -> impl IntoResponse {
+    let s = state.0.combat.next_turn().await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s.clone() });
+    (StatusCode::OK, Json(s))
+}
+
+/// POST /api/combat/roll-initiative
+async fn roll_initiative(
+    State(state): State<SharedState>,
+    Json(req): Json<RollInitiativeRequest>,
+) -> impl IntoResponse {
+    let (rolls, new_state) = state
+        .0
+        .combat
+        .roll_initiative(req.reroll_all, req.manual_overrides)
+        .await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: new_state.clone() });
+    (StatusCode::OK, Json(shared::api_types::combat::RollInitiativeResponse {
+        rolls,
+        state: new_state,
+    }))
+}
+
+/// POST /api/combat/combatant
+async fn add_combatant(
+    State(state): State<SharedState>,
+    Json(req): Json<AddCombatantRequest>,
+) -> impl IntoResponse {
+    let c = state.0.combat.add_combatant(req).await;
+    let s = state.0.combat.snapshot().await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s });
+    (StatusCode::CREATED, Json(c))
+}
+
+/// POST /api/combat/combatant/from-template
+async fn add_from_template(
+    State(state): State<SharedState>,
+    Json(req): Json<AddFromTemplateRequest>,
+) -> impl IntoResponse {
+    let added = state.0.combat.add_from_template(req.template, req.count).await;
+    let s = state.0.combat.snapshot().await;
+    state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s });
+    (StatusCode::CREATED, Json(added))
+}
+
+/// DELETE /api/combat/combatant/{id}
+async fn remove_combatant(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let removed = state.0.combat.remove_combatant(id).await;
+    if removed {
+        let s = state.0.combat.snapshot().await;
+        state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s });
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        (StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Combatiente no encontrado" }))).into_response()
+    }
+}
+
+/// PATCH /api/combat/combatant/{id}/hp
+async fn update_hp(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateHpRequest>,
+) -> impl IntoResponse {
+    match state.0.combat.update_hp(id, req).await {
+        Some(c) => {
+            let s = state.0.combat.snapshot().await;
+            state.0.ws_pool.broadcast(ServerMessage::HpUpdate {
+                character_id: id,
+                current: c.hp_current,
+                max: c.hp_max,
+            });
+            state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s });
+            (StatusCode::OK, Json(c)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Combatiente no encontrado" }))).into_response(),
+    }
+}
+
+/// PATCH /api/combat/combatant/{id}/initiative
+async fn set_initiative(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetInitiativeRequest>,
+) -> impl IntoResponse {
+    match state.0.combat.set_initiative(id, req.value).await {
+        Some(c) => {
+            let s = state.0.combat.snapshot().await;
+            state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s });
+            (StatusCode::OK, Json(c)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Combatiente no encontrado" }))).into_response(),
+    }
+}
+
+/// PATCH /api/combat/combatant/{id}/conditions
+async fn update_conditions(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateConditionsRequest>,
+) -> impl IntoResponse {
+    let conditions_for_ws: Vec<String> = req.conditions.iter()
+        .map(|c| serde_json::to_string(c).unwrap_or_default())
+        .collect();
+    match state.0.combat.update_conditions(id, req).await {
+        Some(c) => {
+            state.0.ws_pool.broadcast(ServerMessage::ConditionUpdate {
+                character_id: id,
+                conditions: conditions_for_ws,
+            });
+            let s = state.0.combat.snapshot().await;
+            state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s });
+            (StatusCode::OK, Json(c)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Combatiente no encontrado" }))).into_response(),
+    }
+}
+
+/// PATCH /api/combat/combatant/{id}/notes
+async fn update_notes(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateNotesRequest>,
+) -> impl IntoResponse {
+    match state.0.combat.update_notes(id, req.notes).await {
+        Some(c) => (StatusCode::OK, Json(c)).into_response(),
+        None    => (StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Combatiente no encontrado" }))).into_response(),
+    }
+}
+
+/// POST /api/combat/turn/{id} — salta al turno de un combatiente concreto
+async fn set_turn(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    match state.0.combat.set_turn(id).await {
+        Some(s) => {
+            state.0.ws_pool.broadcast(ServerMessage::CombatStateUpdate { state: s.clone() });
+            (StatusCode::OK, Json(s)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Combatiente no encontrado" }))).into_response(),
+    }
 }
 
 // ===========================================================================

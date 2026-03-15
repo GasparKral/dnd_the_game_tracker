@@ -1,4 +1,4 @@
-use crate::backend::{registry::Registry, WsPool};
+use crate::backend::{combat::CombatManager, registry::Registry, WsPool};
 use crate::persistence::PersistenceManager;
 use crate::vault::VaultManager;
 use shared::api_types::character_draft::CharacterDraft;
@@ -15,6 +15,8 @@ pub struct AppState {
     pub persistence: PersistenceManager,
     /// Drafts de personaje en curso, indexados por draft_id
     pub drafts: RwLock<HashMap<Uuid, CharacterDraft>>,
+    /// Estado del combate activo en memoria
+    pub combat: CombatManager,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
             registry: Registry::new(),
             persistence: PersistenceManager::new(data_dir),
             drafts: RwLock::new(HashMap::new()),
+            combat: CombatManager::new(),
         }
     }
 }

@@ -48,3 +48,6 @@ notify = "7"
 # HTTP client para llamadas internas al backend desde la UI
 reqwest = { version = "0.12", features = ["json"] }
 
+# Generador de números aleatorios (tiradas de dados en el CombatManager)
+rand = "0.10"
+

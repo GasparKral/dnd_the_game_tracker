@@ -1,3 +1,4 @@
+pub mod combat;
 mod models;
 pub mod registry;
 mod routes;

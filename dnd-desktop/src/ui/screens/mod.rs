@@ -1,3 +1,4 @@
+mod combat;
 mod items;
 mod items_form;
 mod load_campain;
@@ -10,6 +11,7 @@ pub mod player_inventory;
 pub mod player_spells;
 
 use super::layouts::dashboard_layout::DashboardLayout;
+use combat::CombatScreen;
 use dioxus::prelude::*;
 use items::*;
 use items_form::CreateItemModal;
@@ -38,4 +40,6 @@ pub enum Routes {
     Players,
     #[route("/items")]
     ItemsScreen,
+    #[route("/combat")]
+    CombatScreen,
 }

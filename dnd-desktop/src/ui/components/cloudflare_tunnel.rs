@@ -186,10 +186,18 @@ fn start_tunnel(mut tunnel_state: Signal<TunnelState>, mut show_popup: Signal<bo
     tunnel_state.set(TunnelState::Starting);
 
     spawn(async move {
-        let child = Command::new("cloudflared")
-            .args(["--url", "localhost:3000"])
-            .stdout(Stdio::piped())
+        let cloudflared_bin = "/usr/bin/cloudflared";
+
+        let child = Command::new(cloudflared_bin)
+            .args([
+                "tunnel",
+                "--protocol", "http2", // QUIC (UDP) suele estar bloqueado en routers; http2 usa TCP 443
+                "--url", "http://localhost:3000",
+                "--no-autoupdate",
+            ])
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
+            .env("HOME", std::env::var("HOME").unwrap_or_else(|_| "/root".into()))
             .spawn();
 
         let mut child = match child {
@@ -216,29 +224,53 @@ fn start_tunnel(mut tunnel_state: Signal<TunnelState>, mut show_popup: Signal<bo
         // Guardamos el Child en el static global
         store_global_process(child);
 
-        // Leemos stderr en un hilo bloqueante hasta encontrar la URL
-        let url = tokio::task::spawn_blocking(move || {
+        // Canal one-shot: el hilo de lectura envía la URL en cuanto la encuentra
+        // y sigue drenando stderr para que el pipe no se cierre (SIGPIPE mataría cloudflared).
+        let (url_tx, url_rx) = tokio::sync::oneshot::channel::<String>();
+        let url_tx = std::sync::Mutex::new(Some(url_tx));
+
+        tokio::task::spawn_blocking(move || {
+            use std::io::Write;
+            let mut log = std::fs::OpenOptions::new()
+                .create(true).append(true).open("/tmp/cloudflared_debug.log").ok();
+
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
-                info!(line);
-                if let Some(url) = extract_trycloudflare_url(&line) {
-                    return Some(url);
+                tracing::info!("{}", line);
+                if let Some(f) = log.as_mut() {
+                    let _ = writeln!(f, "{}", line);
                 }
+                // Enviar la URL por el canal la primera vez que aparece
+                if let Some(url) = extract_trycloudflare_url(&line) {
+                    if let Ok(mut guard) = url_tx.lock() {
+                        if let Some(tx) = guard.take() {
+                            let _ = tx.send(url);
+                        }
+                    }
+                }
+                // Continuar drenando hasta que cloudflared cierre stderr
             }
-            None
-        })
-        .await
-        .ok()
-        .flatten();
+        });
 
-        match url {
-            Some(url) => {
+        // Esperar la URL con timeout de 30 s
+        let url_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            url_rx,
+        ).await;
+
+        match url_result {
+            Ok(Ok(url)) => {
                 show_popup.set(true);
                 tunnel_state.set(TunnelState::Running { url });
             }
-            None => {
+            Ok(Err(_)) => {
                 tunnel_state.set(TunnelState::Error {
-                    message: "cloudflared terminó sin emitir una URL. ¿Está instalado?".into(),
+                    message: "cloudflared cerró sin emitir URL. Revisa /tmp/cloudflared_debug.log".into(),
+                });
+            }
+            Err(_) => {
+                tunnel_state.set(TunnelState::Error {
+                    message: "Timeout: cloudflared no emitió URL en 30 s".into(),
                 });
             }
         }
