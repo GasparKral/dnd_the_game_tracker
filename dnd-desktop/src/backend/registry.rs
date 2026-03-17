@@ -80,11 +80,7 @@ impl Registry {
     }
 
     pub async fn get_race(&self, id: &str) -> Option<CatalogEntry> {
-        self.races
-            .read()
-            .await
-            .get(id)
-            .map(|e| e.catalog.clone())
+        self.races.read().await.get(id).map(|e| e.catalog.clone())
     }
 
     pub async fn races_catalog(&self) -> CatalogResponse {
@@ -111,11 +107,7 @@ impl Registry {
     }
 
     pub async fn get_class(&self, id: &str) -> Option<CatalogEntry> {
-        self.classes
-            .read()
-            .await
-            .get(id)
-            .map(|e| e.catalog.clone())
+        self.classes.read().await.get(id).map(|e| e.catalog.clone())
     }
 
     pub async fn classes_catalog(&self) -> CatalogResponse {
@@ -173,11 +165,7 @@ impl Registry {
     }
 
     pub async fn get_feat(&self, id: &str) -> Option<CatalogEntry> {
-        self.feats
-            .read()
-            .await
-            .get(id)
-            .map(|e| e.catalog.clone())
+        self.feats.read().await.get(id).map(|e| e.catalog.clone())
     }
 
     pub async fn feats_catalog(&self) -> CatalogResponse {
@@ -202,32 +190,63 @@ impl Registry {
 // Background / Feat). Aquí simplemente instanciamos y registramos.
 // ---------------------------------------------------------------------------
 
+use shared::api_types::catalog::{CatalogEntry, ChoiceSchema, SelectOption};
 use shared::models::defaults::backgrounds::{
-    Acolyte, Artisan, Charlatan, Criminal, Guide,
-    Hermit, Noble, Sailor, Scholar, Soldier,
+    Acolyte, Artisan, Charlatan, Criminal, Guide, Hermit, Noble, Sailor, Scholar, Soldier,
 };
 use shared::models::defaults::classes::{
-    Barbarian, Bard, Cleric, Druid, Fighter,
-    Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard,
+    Barbarian, Bard, Cleric, Druid, Fighter, Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock,
+    Wizard,
 };
 use shared::models::defaults::feats::{
-    // Combate
-    Alert, Charger, CrossbowExpert, DefensiveDuelist, DualWielder,
-    GreatWeaponMaster, Grappler, MageSlayer, MountedCombatant, PolearmMaster,
-    SavageAttacker, Sentinel, Sharpshooter, ShieldMaster, SpellSniper,
-    TavernBrawler, WarCaster, WeaponMaster,
     // Habilidad y Exploración
-    Actor, Athlete, DungeonDelver, Durable, HeavilyArmored, HeavyArmorMaster,
-    InspiringLeader, KeenMind, LightlyArmored, Lucky, MartialAdept,
-    MediumArmorMaster, Mobile, ModeratelyArmored, Observant, Resilient,
-    Skilled, Skulker, Tough,
+    Actor,
+    // Combate
+    Alert,
+    Athlete,
+    Charger,
+    CrossbowExpert,
+    DefensiveDuelist,
+    DualWielder,
+    DungeonDelver,
+    Durable,
     // Mágicos
-    ElementalAdept, Healer, MagicInitiate, RitualCaster,
+    ElementalAdept,
+    Grappler,
+    GreatWeaponMaster,
+    Healer,
+    HeavilyArmored,
+    HeavyArmorMaster,
+    InspiringLeader,
+    KeenMind,
+    LightlyArmored,
+    Lucky,
+    MageSlayer,
+    MagicInitiate,
+    MartialAdept,
+    MediumArmorMaster,
+    Mobile,
+    ModeratelyArmored,
+    MountedCombatant,
+    Observant,
+    PolearmMaster,
+    Resilient,
+    RitualCaster,
+    SavageAttacker,
+    Sentinel,
+    Sharpshooter,
+    ShieldMaster,
+    Skilled,
+    Skulker,
+    SpellSniper,
+    TavernBrawler,
+    Tough,
+    WarCaster,
+    WeaponMaster,
 };
 use shared::models::defaults::races::{
-    Dragonborn, Dwarf, Elf, Gnome, HalfElf, HalfOrc, Halfling, Human, Tiefling,
+    Dragonborn, Dwarf, Elf, Gnome, Goliat, HalfElf, HalfOrc, Halfling, Human, Tiefling,
 };
-use shared::api_types::catalog::{CatalogEntry, ChoiceSchema, SelectOption};
 use shared::traits::{background::Background, class::Class, feat::Feat, race::Race};
 
 /// Macro interna: registra una raza delegando catalog_entry() a la implementación.
@@ -235,7 +254,12 @@ macro_rules! race {
     ($registry:expr, $imp:expr) => {{
         let imp: Box<dyn Race + Send + Sync> = Box::new($imp);
         let catalog = imp.catalog_entry();
-        $registry.register_race(RaceEntry { catalog, implementation: imp }).await;
+        $registry
+            .register_race(RaceEntry {
+                catalog,
+                implementation: imp,
+            })
+            .await;
     }};
 }
 
@@ -244,7 +268,12 @@ macro_rules! class {
     ($registry:expr, $imp:expr) => {{
         let imp: Box<dyn Class + Send + Sync> = Box::new($imp);
         let catalog = imp.catalog_entry();
-        $registry.register_class(ClassEntry { catalog, implementation: imp }).await;
+        $registry
+            .register_class(ClassEntry {
+                catalog,
+                implementation: imp,
+            })
+            .await;
     }};
 }
 
@@ -253,7 +282,12 @@ macro_rules! bg {
     ($registry:expr, $imp:expr) => {{
         let imp: Box<dyn Background + Send + Sync> = Box::new($imp);
         let catalog = imp.catalog_entry();
-        $registry.register_background(BackgroundEntry { catalog, implementation: imp }).await;
+        $registry
+            .register_background(BackgroundEntry {
+                catalog,
+                implementation: imp,
+            })
+            .await;
     }};
 }
 
@@ -268,6 +302,7 @@ pub async fn register_phb_defaults(registry: &Registry) {
     race!(registry, HalfOrc);
     race!(registry, Tiefling);
     race!(registry, Dragonborn);
+    race!(registry, Goliat);
 
     // ── Clases ───────────────────────────────────────────────────────────────
     class!(registry, Barbarian);
@@ -512,7 +547,9 @@ pub async fn register_phb_defaults(registry: &Registry) {
             implementation: Box::new(WeaponMaster),
         },
     ];
-    for feat in combat_feats { registry.register_feat(feat).await; }
+    for feat in combat_feats {
+        registry.register_feat(feat).await;
+    }
 
     // Habilidad y Exploración
     let utility_feats: Vec<FeatEntry> = vec![
@@ -738,7 +775,9 @@ pub async fn register_phb_defaults(registry: &Registry) {
             implementation: Box::new(Tough),
         },
     ];
-    for feat in utility_feats { registry.register_feat(feat).await; }
+    for feat in utility_feats {
+        registry.register_feat(feat).await;
+    }
 
     // Mágicos
     let magic_feats: Vec<FeatEntry> = vec![
@@ -810,5 +849,7 @@ pub async fn register_phb_defaults(registry: &Registry) {
             implementation: Box::new(RitualCaster),
         },
     ];
-    for feat in magic_feats { registry.register_feat(feat).await; }
+    for feat in magic_feats {
+        registry.register_feat(feat).await;
+    }
 }
